@@ -1,0 +1,11 @@
+[package]
+name = "naught"
+version = "0.1.0"
+authors = ["Fedor Indutny <fedor@indutny.com>"]
+edition = "2018"
+
+[dependencies]
+hyper = "^0.12.24"
+jch = "^1.0.0"
+twox-hash = "^1.1.2"
+rand = "^0.6.5"
