@@ -1,81 +1,111 @@
 extern crate hyper;
 extern crate futures;
 extern crate tokio_sync;
+extern crate serde_json;
 
 use std::net::{IpAddr, SocketAddr};
 
 use crate::node::Node;
 
-use futures::{Future, Stream, Sink};
-use tokio_sync::mpsc;
+use futures::{Future, Stream, Sink, IntoFuture};
+use tokio_sync::{mpsc, oneshot};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use hyper::service::service_fn;
 
+#[derive(Debug)]
+struct RequestPacket {
+    response_tx: oneshot::Sender<ResponseMessage>,
+    message: RequestMessage,
+}
+
+#[derive(Debug)]
 enum RequestMessage {
     Info,
 }
 
+#[derive(Debug)]
 enum ResponseMessage {
-    Status(StatusCode),
     Body(Body),
 }
 
 struct Service {
-    tx: mpsc::UnboundedSender<RequestMessage>,
+    request_tx: mpsc::UnboundedSender<RequestPacket>,
 }
 
 impl Service {
     fn call(&self, req: Request<Body>) -> Box<Future<Item=Response<Body>, Error=hyper::http::Error> + Send> {
-        let tx = self.tx.clone();
-        Box::new(
-            tx.send(RequestMessage::Info)
-                .then(move |send| {
-                    send.expect("Send to succeed");
+        let mut res = Response::builder();
+        res.header("content-type", "application/json");
 
-                    let mut res = Response::builder();
+        let message = match (req.method(), req.uri().path()) {
+            (&Method::GET, "/_info") => RequestMessage::Info,
+            _ => {
+                res.status(StatusCode::NOT_FOUND);
+                let body = Body::from("{\"error\":\"not found\"}");
+                return Box::new(res.body(body).into_future());
+            },
+        };
 
-                    res.header("content-type", "application/json");
+        let (response_tx, response_rx) = oneshot::channel();
 
-                    match (req.method(), req.uri().path()) {
-                        (&Method::GET, "/_info") => {
-                            res.body(Body::from("index"))
-                        },
-                        _ => {
-                            res.status(StatusCode::NOT_FOUND);
-                            res.body(Body::empty())
-                        },
-                    }
-                })
-        )
+        let packet = RequestPacket { response_tx, message };
+
+        // TODO(indutny): use `try_send` and implement `hyper::Service` trait
+        // to remove `Fn` restriction from `.serve()` call below.
+        Box::new(self.request_tx.clone().send(packet).then(move |send_res| {
+            // TODO(indutny): report error properly
+            send_res.expect("Send to succeed");
+
+            response_rx
+        }).then(move |msg| {
+            // TODO(indutny): report error properly
+            let msg = msg.expect("Response message");
+
+            match msg {
+                ResponseMessage::Body(body) => res.body(body),
+            }
+        }))
     }
 }
 
 pub struct Server {
-    node: Node,
 }
 
 impl Server {
-    pub fn new(node: Node) -> Server {
-        Server { node }
+    pub fn new() -> Server {
+        Server {}
     }
 
-    pub fn listen(&mut self, port: u16, host: &str) -> Result<(), ()> {
+    pub fn listen(&self, node: Node, port: u16, host: &str) -> Result<(), ()> {
          // TODO(indutny): wrap error
         let ip_addr: IpAddr = host.parse().map_err(|_| ())?;
         let bind_addr: SocketAddr = SocketAddr::new(ip_addr, port);
 
         let builder = hyper::Server::bind(&bind_addr);
 
-        let (request_tx, request_rx) = mpsc::unbounded_channel::<RequestMessage>();
+        let (request_tx, request_rx) = mpsc::unbounded_channel();
 
-        let rpc = request_rx.for_each(|msg| {
+        let rpc = request_rx.for_each(move |packet: RequestPacket| {
+            // TODO(indutny): proper error reporting
+            let res = node.info().expect("To get response");
+
+            // TODO(indutny): proper error reporting
+            // TODO(indutny): move JSON stringify to thread
+            let json = serde_json::to_string(&res)
+                .expect("JSON stringify to succeed");
+
+            // TODO(indutny): proper error reporting
+            packet.response_tx
+                .send(ResponseMessage::Body(Body::from(json)))
+                .expect("Send to succeed");
+
             Ok(())
         }).map_err(|_| ());
 
         let server = builder
             .serve(move || {
                 let service = Service {
-                    tx: request_tx.clone(),
+                    request_tx: request_tx.clone(),
                 };
 
                 service_fn(move |req| service.call(req))
