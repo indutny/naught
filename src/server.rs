@@ -1,12 +1,13 @@
 extern crate hyper;
 extern crate futures;
+extern crate tokio_sync;
 
 use std::net::{IpAddr, SocketAddr};
 
 use crate::node::Node;
 
-use futures::{future, Future, Sink};
-use futures::sync::mpsc;
+use futures::{Future, Stream, Sink};
+use tokio_sync::mpsc;
 use hyper::{Body, Method, Request, Response, StatusCode};
 use hyper::service::service_fn;
 
@@ -20,15 +21,16 @@ enum ResponseMessage {
 }
 
 struct Service {
-    tx: mpsc::Sender<RequestMessage>,
+    tx: mpsc::UnboundedSender<RequestMessage>,
 }
 
 impl Service {
     fn call(&self, req: Request<Body>) -> Box<Future<Item=Response<Body>, Error=hyper::http::Error> + Send> {
+        let tx = self.tx.clone();
         Box::new(
-            self.tx.send(RequestMessage::Info)
+            tx.send(RequestMessage::Info)
                 .then(move |send| {
-                    send.unwrap();
+                    send.expect("Send to succeed");
 
                     let mut res = Response::builder();
 
@@ -64,10 +66,13 @@ impl Server {
 
         let builder = hyper::Server::bind(&bind_addr);
 
-        let (request_tx, _request_rx) =
-            mpsc::channel::<RequestMessage>(8);
+        let (request_tx, request_rx) = mpsc::unbounded_channel::<RequestMessage>();
 
-        let future = builder
+        let rpc = request_rx.for_each(|msg| {
+            Ok(())
+        }).map_err(|_| ());
+
+        let server = builder
             .serve(move || {
                 let service = Service {
                     tx: request_tx.clone(),
@@ -76,10 +81,10 @@ impl Server {
                 service_fn(move |req| service.call(req))
             })
             .map_err(|e| {
-                eprintln!("server error: {}", e);
+                eprintln!("server error: {:?}", e);
             });
 
-        hyper::rt::run(future);
+        hyper::rt::run(server.join(rpc).map(|_| ()));
 
         Ok(())
     }

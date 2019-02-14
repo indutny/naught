@@ -12,3 +12,4 @@ rand = "^0.6.5"
 futures = "^0.1.25"
 serde_json = "^1.0.38"
 serde = { version = "^1.0.87", features = ["derive"] }
+tokio-sync = "^0.1.1"
