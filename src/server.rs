@@ -22,11 +22,13 @@ struct RequestPacket {
 #[derive(Debug)]
 enum RequestMessage {
     Info,
+    ListKeys,
 }
 
 #[derive(Debug)]
 enum ResponseMessage {
     Info(response::Info),
+    ListKeys(response::ListKeys),
 }
 
 struct Service {
@@ -40,6 +42,7 @@ impl Service {
 
         let message = match (req.method(), req.uri().path()) {
             (&Method::GET, "/_info") => RequestMessage::Info,
+            (&Method::GET, "/_keys") => RequestMessage::ListKeys,
             _ => {
                 res.status(StatusCode::NOT_FOUND);
                 let body = Body::from("{\"error\":\"not found\"}");
@@ -62,13 +65,11 @@ impl Service {
             // TODO(indutny): report error properly
             let msg = msg.expect("Response message");
 
+            // TODO(indutny): proper error reporting
             let json = match msg {
-                ResponseMessage::Info(info) => {
-                    // TODO(indutny): proper error reporting
-                    serde_json::to_string(&info)
-                        .expect("JSON stringify to succeed")
-                },
-            };
+                ResponseMessage::Info(info) => serde_json::to_string(&info),
+                ResponseMessage::ListKeys(keys) => serde_json::to_string(&keys),
+            }.expect("JSON stringify to succeed");
             res.body(Body::from(json))
         }))
     }
@@ -93,12 +94,17 @@ impl Server {
 
         let rpc = request_rx.for_each(move |packet: RequestPacket| {
             // TODO(indutny): proper error reporting
-            let res = node.info().expect("To get response");
+            let res = match packet.message {
+                RequestMessage::Info => {
+                    ResponseMessage::Info(node.info().expect("To get response"))
+                },
+                RequestMessage::ListKeys => {
+                    ResponseMessage::ListKeys(node.list_keys().expect("To get response"))
+                },
+            };
 
             // TODO(indutny): proper error reporting
-            packet.response_tx
-                .send(ResponseMessage::Info(res))
-                .expect("Send to succeed");
+            packet.response_tx.send(res).expect("Send to succeed");
 
             Ok(())
         }).map_err(|_| ());
