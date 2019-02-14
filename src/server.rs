@@ -6,6 +6,7 @@ extern crate serde_json;
 use std::net::{IpAddr, SocketAddr};
 
 use crate::node::Node;
+use crate::message::*;
 
 use futures::{Future, Stream, Sink, IntoFuture};
 use tokio_sync::{mpsc, oneshot};
@@ -25,7 +26,7 @@ enum RequestMessage {
 
 #[derive(Debug)]
 enum ResponseMessage {
-    Body(Body),
+    Info(response::Info),
 }
 
 struct Service {
@@ -61,9 +62,14 @@ impl Service {
             // TODO(indutny): report error properly
             let msg = msg.expect("Response message");
 
-            match msg {
-                ResponseMessage::Body(body) => res.body(body),
-            }
+            let json = match msg {
+                ResponseMessage::Info(info) => {
+                    // TODO(indutny): proper error reporting
+                    serde_json::to_string(&info)
+                        .expect("JSON stringify to succeed")
+                },
+            };
+            res.body(Body::from(json))
         }))
     }
 }
@@ -90,13 +96,8 @@ impl Server {
             let res = node.info().expect("To get response");
 
             // TODO(indutny): proper error reporting
-            // TODO(indutny): move JSON stringify to thread
-            let json = serde_json::to_string(&res)
-                .expect("JSON stringify to succeed");
-
-            // TODO(indutny): proper error reporting
             packet.response_tx
-                .send(ResponseMessage::Body(Body::from(json)))
+                .send(ResponseMessage::Info(res))
                 .expect("Send to succeed");
 
             Ok(())
