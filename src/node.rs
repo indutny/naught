@@ -1,14 +1,10 @@
 extern crate futures;
-extern crate hyper;
 extern crate twox_hash;
 extern crate jch;
 extern crate rand;
 
-use std::net::{IpAddr, SocketAddr};
-
-use futures::Future;
-use hyper::{Body, Client, Method, Request, Response, Server, StatusCode};
-use hyper::service::service_fn;
+use futures::{Future, future};
+use crate::message::*;
 
 struct Peer {
     // Random number
@@ -24,7 +20,6 @@ struct Peer {
 pub struct Node {
     id: u64,
     peers: Vec<Peer>,
-    client: Client<hyper::client::HttpConnector, hyper::Body>,
 }
 
 impl Node {
@@ -32,41 +27,27 @@ impl Node {
         Node {
             id: rand::random::<u64>(),
             peers: vec![],
-
-            // Pre-allocate client
-            client: Client::new(),
         }
     }
 
-    fn router(req: Request<Body>) -> Result<Response<Body>, hyper::http::Error> {
-        let mut res = Response::builder();
-
-        res.header("content-type", "application/json");
-
-        match (req.method(), req.uri().path()) {
-            (&Method::GET, "/") => {
-                res.body(Body::from("index"))
-            },
-            _ => {
-                res.status(StatusCode::NOT_FOUND);
-                res.body(Body::empty())
-            },
-        }
+    pub fn info(&self) -> Result<response::Info, Box<str>> {
+        Ok(response::Info {
+            id: self.id.to_be_bytes(),
+            peers: vec![],
+        })
     }
 
-    pub fn listen(&mut self, port: u16, host: &str) -> Result<(), ()> {
-        // TODO(indutny): wrap error
-        let ip_addr: IpAddr = host.parse().map_err(|_| ())?;
-        let bind_addr: SocketAddr = SocketAddr::new(ip_addr, port);
+    pub fn list_keys(&self) -> Result<response::ListKeys, Box<str>> {
+        Ok(response::ListKeys {
+            keys: vec![],
+        })
+    }
 
-        let builder = Server::bind(&bind_addr);
+    pub fn add_node(&mut self, _msg: &request::AddNode) -> Result<response::AddNode, Box<str>> {
+        Ok(response::AddNode {})
+    }
 
-        hyper::rt::run(
-            builder.serve(|| service_fn(Node::router))
-            .map_err(|e| {
-                eprintln!("server error: {}", e);
-            })
-        );
-        Ok(())
+    pub fn remove_node(&mut self, _msg: &request::RemoveNode) -> Result<response::RemoveNode, Box<str>> {
+        Ok(response::RemoveNode {})
     }
 }
