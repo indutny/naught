@@ -19,6 +19,7 @@ pub enum ResponseMessage {
     Info(response::Info),
     ListKeys(response::ListKeys),
     AddNode(response::AddNode),
+    RemoveNode(response::RemoveNode),
 }
 
 #[derive(Serialize, Debug)]
@@ -30,6 +31,7 @@ pub enum RequestMessage {
     Info,
     ListKeys,
     AddNode(request::AddNode),
+    RemoveNode(request::RemoveNode),
 }
 
 pub struct RequestPacket {
@@ -59,6 +61,9 @@ impl RPCService {
                 }),
                 RequestMessage::AddNode(body) => node.add_node(&body).map(|res| {
                     ResponseMessage::AddNode(res)
+                }),
+                RequestMessage::RemoveNode(body) => node.remove_node(&body).map(|res| {
+                    ResponseMessage::RemoveNode(res)
                 }),
             };
 
@@ -111,6 +116,12 @@ impl hyper::service::Service for RPCService {
                         .map(|body| RequestMessage::AddNode(body))
                 )
             },
+            (&Method::DELETE, "/_nodes") => {
+                Box::new(
+                    RPCService::fetch_json(req)
+                        .map(|body| RequestMessage::RemoveNode(body))
+                )
+            },
             _ => {
                 res.status(StatusCode::NOT_FOUND);
                 let body = Body::from("{\"error\":\"Not found\"}");
@@ -141,6 +152,9 @@ impl hyper::service::Service for RPCService {
                         },
                         ResponseMessage::AddNode(add_node) => {
                             serde_json::to_string(&add_node)
+                        },
+                        ResponseMessage::RemoveNode(remove_node) => {
+                            serde_json::to_string(&remove_node)
                         },
                     };
 
