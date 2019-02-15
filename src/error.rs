@@ -67,7 +67,7 @@ impl From<hyper::http::Error> for Error {
 }
 
 impl From<tokio_sync::mpsc::error::UnboundedRecvError> for Error {
-    fn from(err: tokio_sync::mpsc::error::UnboundedRecvError) -> Self {
+    fn from(_: tokio_sync::mpsc::error::UnboundedRecvError) -> Self {
         Error::MPSCRecv
     }
 }
@@ -79,7 +79,7 @@ impl From<tokio_sync::mpsc::error::UnboundedSendError> for Error {
 }
 
 impl From<tokio_sync::oneshot::error::RecvError> for Error {
-    fn from(err: tokio_sync::oneshot::error::RecvError) -> Self {
+    fn from(_: tokio_sync::oneshot::error::RecvError) -> Self {
         Error::OneShotRecv
     }
 }

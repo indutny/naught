@@ -159,7 +159,7 @@ impl hyper::service::Service for RPCService {
                             let maybe_json = serde_json::to_string(&ResponseError { error: err });
                             match maybe_json {
                                 Ok(json) => res.body(Body::from(json)),
-                                Err(err) => res.body(Body::from("{\"error\":\"unknown error\"}")),
+                                Err(_) => res.body(Body::from("{\"error\":\"unknown error\"}")),
                             }
                         }
                     }

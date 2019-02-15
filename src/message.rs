@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 
 pub type Id = [u8; 8];
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PeerInfo {
-    pub host: Box<str>,
-    pub port: u16,
+    pub id: Id,
+    pub base_uri: String,
 }
 
 pub mod request {
@@ -51,6 +51,6 @@ pub mod response {
 
     #[derive(Serialize, Deserialize, Debug)]
     pub struct ListKeys {
-        pub keys: Vec<Box<str>>,
+        pub keys: Vec<String>,
     }
 }

@@ -10,17 +10,6 @@ use serde::Serialize;
 
 use crate::message::*;
 
-struct Peer {
-    // Random number
-    id: u64,
-
-    // Bucket index for consistent hashing
-    bucket: u32,
-
-    // http://host:port
-    base_uri: Box<str>,
-}
-
 #[derive(Serialize, Debug)]
 pub enum Error {
     Every,
@@ -40,7 +29,7 @@ impl fmt::Display for Error {
 
 pub struct Node {
     id: u64,
-    peers: Vec<Peer>,
+    peers: Vec<PeerInfo>,
 }
 
 impl Node {
@@ -54,7 +43,7 @@ impl Node {
     pub fn info(&self) -> Result<response::Info, Error> {
         Ok(response::Info {
             id: self.id.to_be_bytes(),
-            peers: vec![],
+            peers: self.peers.clone(),
         })
     }
 
