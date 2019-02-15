@@ -1,12 +1,23 @@
 extern crate hyper;
+extern crate serde;
 extern crate tokio_sync;
 
 use std::fmt;
 use std::error::Error as StdError;
 
-#[derive(Debug)]
+use serde::{Serialize};
+
+#[derive(Serialize, Debug)]
 pub enum Error {
-    Every,
+    Node(crate::node::Error),
+    AddrParse(String),
+    Hyper(String),
+    HyperHTTP(String),
+    MPSCRecv,
+    MPSCSend(String),
+    OneShotRecv,
+    OneShotSend,
+    JSON(String),
 }
 
 impl StdError for Error {
@@ -17,54 +28,64 @@ impl StdError for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Naught Error: {}", self.description())
+        match self {
+            Error::Node(err) => write!(f, "Node: {}", err.description()),
+            Error::AddrParse(s) => write!(f, "AddrParse: {}", s),
+            Error::Hyper(s) => write!(f, "Hyper: {}", s),
+            Error::HyperHTTP(s) => write!(f, "Hyper HTTP: {}", s),
+            Error::MPSCRecv => write!(f, "MPSCRecv"),
+            Error::MPSCSend(s) => write!(f, "MPSCSend: {}", s),
+            Error::OneShotRecv => write!(f, "OneShotRecv"),
+            Error::OneShotSend => write!(f, "OneShotSend"),
+            Error::JSON(s) => write!(f, "JSON Error: {}", s),
+        }
     }
 }
 
 impl From<crate::node::Error> for Error {
-    fn from(_: crate::node::Error) -> Self {
-        Error::Every
+    fn from(err: crate::node::Error) -> Self {
+        Error::Node(err)
     }
 }
 
 impl From<std::net::AddrParseError> for Error {
-    fn from(_: std::net::AddrParseError) -> Self {
-        Error::Every
+    fn from(err: std::net::AddrParseError) -> Self {
+        Error::AddrParse(err.description().to_string())
     }
 }
 
 impl From<hyper::error::Error> for Error {
-    fn from(_: hyper::error::Error) -> Self {
-        Error::Every
+    fn from(err: hyper::error::Error) -> Self {
+        Error::Hyper(err.description().to_string())
     }
 }
 
 impl From<hyper::http::Error> for Error {
-    fn from(_: hyper::http::Error) -> Self {
-        Error::Every
+    fn from(err: hyper::http::Error) -> Self {
+        Error::HyperHTTP(err.description().to_string())
     }
 }
 
 impl From<tokio_sync::mpsc::error::UnboundedRecvError> for Error {
-    fn from(_: tokio_sync::mpsc::error::UnboundedRecvError) -> Self {
-        Error::Every
+    fn from(err: tokio_sync::mpsc::error::UnboundedRecvError) -> Self {
+        Error::MPSCRecv
     }
 }
 
-impl<T> From<tokio_sync::mpsc::error::UnboundedTrySendError<T>> for Error {
-    fn from(_: tokio_sync::mpsc::error::UnboundedTrySendError<T>) -> Self {
-        Error::Every
+impl From<tokio_sync::mpsc::error::UnboundedSendError> for Error {
+    fn from(err: tokio_sync::mpsc::error::UnboundedSendError) -> Self {
+        Error::MPSCSend(err.description().to_string())
     }
 }
 
 impl From<tokio_sync::oneshot::error::RecvError> for Error {
-    fn from(_: tokio_sync::oneshot::error::RecvError) -> Self {
-        Error::Every
+    fn from(err: tokio_sync::oneshot::error::RecvError) -> Self {
+        Error::OneShotRecv
     }
 }
 
 impl From<serde_json::Error> for Error {
-    fn from(_: serde_json::Error) -> Self {
-        Error::Every
+    fn from(err: serde_json::Error) -> Self {
+        Error::JSON(format!("{:#?}", err))
     }
 }

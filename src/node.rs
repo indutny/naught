@@ -1,9 +1,12 @@
 extern crate twox_hash;
 extern crate jch;
 extern crate rand;
+extern crate serde;
 
 use std::fmt;
 use std::error::Error as StdError;
+
+use serde::{Serialize};
 
 use crate::message::*;
 
@@ -18,7 +21,7 @@ struct Peer {
     base_uri: Box<str>,
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Debug)]
 pub enum Error {
     Every
 }

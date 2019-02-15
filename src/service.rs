@@ -1,4 +1,5 @@
 extern crate tokio_sync;
+extern crate serde;
 extern crate serde_json;
 extern crate futures;
 
@@ -6,20 +7,29 @@ use futures::{IntoFuture};
 use futures::prelude::*;
 use futures::future::{self, FutureResult};
 use hyper::{Body, Method, Request, Response, StatusCode};
+use serde::{Serialize};
+use serde::de::{DeserializeOwned};
 use tokio_sync::{mpsc, oneshot};
 
 use crate::error::{Error as RPCError};
-use crate::message::{response};
+use crate::message::{request, response};
 use crate::node::Node;
 
 pub enum ResponseMessage {
     Info(response::Info),
     ListKeys(response::ListKeys),
+    AddNode(response::AddNode),
+}
+
+#[derive(Serialize, Debug)]
+struct ResponseError {
+    error: RPCError,
 }
 
 pub enum RequestMessage {
     Info,
     ListKeys,
+    AddNode(request::AddNode),
 }
 
 pub struct RequestPacket {
@@ -41,11 +51,14 @@ impl RPCService {
         request_rx.from_err::<RPCError>().for_each(move |packet| {
             let response_tx = packet.response_tx;
             let maybe_res_msg = match packet.message {
-                RequestMessage::Info => node.info().map(|info| {
-                    ResponseMessage::Info(info)
+                RequestMessage::Info => node.info().map(|res| {
+                    ResponseMessage::Info(res)
                 }),
-                RequestMessage::ListKeys => node.list_keys().map(|info| {
-                    ResponseMessage::ListKeys(info)
+                RequestMessage::ListKeys => node.list_keys().map(|res| {
+                    ResponseMessage::ListKeys(res)
+                }),
+                RequestMessage::AddNode(body) => node.add_node(&body).map(|res| {
+                    ResponseMessage::AddNode(res)
                 }),
             };
 
@@ -57,11 +70,23 @@ impl RPCService {
             };
 
             if response_tx.send(res_msg).is_err() {
-                future::err(RPCError::Every)
+                future::err(RPCError::OneShotSend)
             } else {
                 future::ok(())
             }
         }).from_err()
+    }
+
+    fn fetch_json<T: DeserializeOwned>(req: Request<Body>) -> impl Future<Item=T, Error=RPCError> {
+        req
+            .into_body()
+            .concat2()
+            .from_err::<RPCError>()
+            .and_then(|chunk| {
+                serde_json::from_slice::<T>(&chunk).map_err(|err| {
+                    RPCError::from(err)
+                })
+            })
     }
 }
 
@@ -77,33 +102,35 @@ impl hyper::service::Service for RPCService {
 
         let (response_tx, response_rx) = oneshot::channel();
 
-        let maybe_req_message = match (req.method(), req.uri().path()) {
-            (&Method::GET, "/_info") => Some(RequestMessage::Info),
-            (&Method::GET, "/_keys") => Some(RequestMessage::ListKeys),
-            _ => None,
-        };
-
-        let req_message = match maybe_req_message {
-            None => {
+        let req_message: Box<Future<Item=RequestMessage, Error=RPCError> + Send> = match (req.method(), req.uri().path()) {
+            (&Method::GET, "/_info") => Box::new(future::ok(RequestMessage::Info)),
+            (&Method::GET, "/_keys") => Box::new(future::ok(RequestMessage::ListKeys)),
+            (&Method::PUT, "/_nodes") => {
+                Box::new(
+                    RPCService::fetch_json(req)
+                        .map(|body| RequestMessage::AddNode(body))
+                )
+            },
+            _ => {
                 res.status(StatusCode::NOT_FOUND);
                 let body = Body::from("{\"error\":\"Not found\"}");
                 return Box::new(res.body(body).into_future().from_err());
             },
-            Some(req_message) => req_message,
         };
 
-        let req_packet = RequestPacket {
-            response_tx,
-            message: req_message,
-        };
-
-        if let Err(fail) = self.request_tx.try_send(req_packet) {
-            return Box::new(future::err(RPCError::from(fail)));
-        }
+        let request_tx = self.request_tx.clone();
 
         Box::new(
-            response_rx
-                .from_err::<RPCError>()
+            req_message
+                .and_then(move |req_message| {
+                    let req_packet = RequestPacket {
+                        response_tx,
+                        message: req_message,
+                    };
+
+                    request_tx.send(req_packet).from_err()
+                })
+                .and_then(|_| response_rx.from_err())
                 .and_then(|res_msg| {
                     let json = match res_msg {
                         ResponseMessage::Info(info) => {
@@ -112,14 +139,31 @@ impl hyper::service::Service for RPCService {
                         ResponseMessage::ListKeys(list_keys) => {
                             serde_json::to_string(&list_keys)
                         },
+                        ResponseMessage::AddNode(add_node) => {
+                            serde_json::to_string(&add_node)
+                        },
                     };
 
                     json
                         .map(|json| Body::from(json))
                         .map_err(|err| RPCError::from(err))
                 })
-                .and_then(move |body| {
-                    res.body(body).into_future().from_err()
+                .then(move |result| {
+                    match result {
+                        Ok(body) => {
+                            res.body(body)
+                        },
+                        Err(err) => {
+                            let maybe_json = serde_json::to_string(
+                                &ResponseError { error: err });
+                            match maybe_json {
+                                Ok(json) => res.body(Body::from(json)),
+                                Err(err) => {
+                                    res.body(Body::from("{\"error\":\"unknown error\"}"))
+                                },
+                            }
+                        },
+                    }.into_future().from_err()
                 })
         )
     }
