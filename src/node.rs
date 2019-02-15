@@ -31,6 +31,8 @@ impl fmt::Display for Error {
 
 pub struct Node {
     id: u64,
+
+    // Two sorted vectors
     peers: Vec<Peer>,
     peer_ids: Vec<u64>,
 }
