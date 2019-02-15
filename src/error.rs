@@ -2,10 +2,10 @@ extern crate hyper;
 extern crate serde;
 extern crate tokio_sync;
 
-use std::fmt;
 use std::error::Error as StdError;
+use std::fmt;
 
-use serde::{Serialize};
+use serde::Serialize;
 
 #[derive(Serialize, Debug)]
 pub enum Error {

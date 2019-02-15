@@ -1,12 +1,12 @@
-extern crate twox_hash;
 extern crate jch;
 extern crate rand;
 extern crate serde;
+extern crate twox_hash;
 
-use std::fmt;
 use std::error::Error as StdError;
+use std::fmt;
 
-use serde::{Serialize};
+use serde::Serialize;
 
 use crate::message::*;
 
@@ -23,7 +23,7 @@ struct Peer {
 
 #[derive(Serialize, Debug)]
 pub enum Error {
-    Every
+    Every,
 }
 
 impl StdError for Error {
@@ -59,16 +59,17 @@ impl Node {
     }
 
     pub fn list_keys(&self) -> Result<response::ListKeys, Error> {
-        Ok(response::ListKeys {
-            keys: vec![],
-        })
+        Ok(response::ListKeys { keys: vec![] })
     }
 
     pub fn add_node(&mut self, _msg: &request::AddNode) -> Result<response::AddNode, Error> {
         Ok(response::AddNode {})
     }
 
-    pub fn remove_node(&mut self, _msg: &request::RemoveNode) -> Result<response::RemoveNode, Error> {
+    pub fn remove_node(
+        &mut self,
+        _msg: &request::RemoveNode,
+    ) -> Result<response::RemoveNode, Error> {
         Ok(response::RemoveNode {})
     }
 }

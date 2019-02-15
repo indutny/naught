@@ -1,6 +1,6 @@
 extern crate serde;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 pub type Id = [u8; 8];
 
@@ -11,8 +11,8 @@ pub struct PeerInfo {
 }
 
 pub mod request {
-    use serde::{Serialize, Deserialize};
     use super::*;
+    use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize, Debug)]
     pub struct AddNode {
@@ -31,8 +31,8 @@ pub mod request {
 }
 
 pub mod response {
-    use serde::{Serialize, Deserialize};
     use super::*;
+    use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize, Debug)]
     pub struct Info {
