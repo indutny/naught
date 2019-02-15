@@ -33,15 +33,13 @@ impl Server {
             })
             .from_err();
 
-        let rpc = RPCService::forward_rpc(node).from_err();
+        let rpc = RPCService::forward_rpc(request_rx, node);
 
-        hyper::rt::run(
-            server.join(rpc)
-                .map(|_| ())
-                .map_err(move |err: crate::error::Error| {
-                    eprintln!("Got error: {:#?}", err);
-                })
-        );
+        hyper::rt::run(server.join(rpc)
+            .map(|_| ())
+            .map_err(move |err: crate::error::Error| {
+                eprintln!("Got error: {:#?}", err);
+            }));
 
         Ok(())
     }

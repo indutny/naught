@@ -2,6 +2,9 @@ extern crate twox_hash;
 extern crate jch;
 extern crate rand;
 
+use std::fmt;
+use std::error::Error as StdError;
+
 use crate::message::*;
 
 struct Peer {
@@ -13,6 +16,23 @@ struct Peer {
 
     // http://host:port
     base_uri: Box<str>,
+}
+
+#[derive(Debug)]
+pub enum Error {
+    Every
+}
+
+impl StdError for Error {
+    fn description(&self) -> &str {
+        "TODO(indutny): implement me"
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Naught Node Error: {}", self.description())
+    }
 }
 
 pub struct Node {
@@ -28,24 +48,24 @@ impl Node {
         }
     }
 
-    pub fn info(&self) -> Result<response::Info, Box<str>> {
+    pub fn info(&self) -> Result<response::Info, Error> {
         Ok(response::Info {
             id: self.id.to_be_bytes(),
             peers: vec![],
         })
     }
 
-    pub fn list_keys(&self) -> Result<response::ListKeys, Box<str>> {
+    pub fn list_keys(&self) -> Result<response::ListKeys, Error> {
         Ok(response::ListKeys {
             keys: vec![],
         })
     }
 
-    pub fn add_node(&mut self, _msg: &request::AddNode) -> Result<response::AddNode, Box<str>> {
+    pub fn add_node(&mut self, _msg: &request::AddNode) -> Result<response::AddNode, Error> {
         Ok(response::AddNode {})
     }
 
-    pub fn remove_node(&mut self, _msg: &request::RemoveNode) -> Result<response::RemoveNode, Box<str>> {
+    pub fn remove_node(&mut self, _msg: &request::RemoveNode) -> Result<response::RemoveNode, Error> {
         Ok(response::RemoveNode {})
     }
 }
