@@ -1,9 +1,7 @@
-extern crate futures;
 extern crate twox_hash;
 extern crate jch;
 extern crate rand;
 
-use futures::{Future, future};
 use crate::message::*;
 
 struct Peer {
