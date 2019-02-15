@@ -109,6 +109,7 @@ impl hyper::service::Service for RPCService {
 
         let (response_tx, response_rx) = oneshot::channel();
 
+        // TODO(indutny): authorization
         let req_message: Box<Future<Item = RequestMessage, Error = RPCError> + Send> =
             match (req.method(), req.uri().path()) {
                 (&Method::GET, "/_info") => Box::new(future::ok(RequestMessage::Info)),
