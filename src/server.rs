@@ -8,10 +8,11 @@ use std::net::{IpAddr, SocketAddr};
 use crate::node::Node;
 use crate::message::*;
 
-use futures::{Future, Stream, Sink, IntoFuture};
-use tokio_sync::{mpsc, oneshot};
+use futures::{future, Future, Stream, Sink, IntoFuture};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use hyper::service::service_fn;
+use serde::Deserialize;
+use tokio_sync::{mpsc, oneshot};
 
 #[derive(Debug)]
 struct RequestPacket {
@@ -23,12 +24,14 @@ struct RequestPacket {
 enum RequestMessage {
     Info,
     ListKeys,
+    AddNode(request::AddNode),
 }
 
 #[derive(Debug)]
 enum ResponseMessage {
     Info(response::Info),
     ListKeys(response::ListKeys),
+    AddNode(response::AddNode),
 }
 
 struct Service {
@@ -36,29 +39,46 @@ struct Service {
 }
 
 impl Service {
+    fn request_to_msg(req: Request<Body>) -> Option<Box<Future<Item=RequestMessage, Error=()> + Send>> {
+        match (req.method(), req.uri().path()) {
+            (&Method::GET, "/_info") => Some(Box::new(future::ok(RequestMessage::Info))),
+            (&Method::GET, "/_keys") => Some(Box::new(future::ok(RequestMessage::ListKeys))),
+            (&Method::PUT, "/_node") => {
+                Some(Box::new(future::ok(RequestMessage::AddNode(request::AddNode {
+                    id: [0;8],
+                    peers: vec![],
+                }))))
+            },
+            _ => None,
+        }
+    }
+
     fn call(&self, req: Request<Body>) -> Box<Future<Item=Response<Body>, Error=hyper::http::Error> + Send> {
         let mut res = Response::builder();
         res.header("content-type", "application/json");
 
-        let message = match (req.method(), req.uri().path()) {
-            (&Method::GET, "/_info") => RequestMessage::Info,
-            (&Method::GET, "/_keys") => RequestMessage::ListKeys,
-            _ => {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        let packet = match Service::request_to_msg(req) {
+            Some(message) => message.map(|message| {
+                RequestPacket { response_tx, message }
+            }),
+            None => {
                 res.status(StatusCode::NOT_FOUND);
                 let body = Body::from("{\"error\":\"not found\"}");
                 return Box::new(res.body(body).into_future());
-            },
+            }
         };
 
-        let (response_tx, response_rx) = oneshot::channel();
-
-        let packet = RequestPacket { response_tx, message };
+        let request_tx = self.request_tx.clone();
 
         // TODO(indutny): use `try_send` and implement `hyper::Service` trait
         // to remove `Fn` restriction from `.serve()` call below.
-        Box::new(self.request_tx.clone().send(packet).then(move |send_res| {
+        Box::new(packet.map(move |packet| {
+            request_tx.send(packet)
+        }).then(move |send_res| {
             // TODO(indutny): report error properly
-            send_res.expect("Send to succeed");
+            println!("{:#?}", send_res.expect("Send to succeed"));
 
             response_rx
         }).then(move |msg| {
@@ -69,6 +89,7 @@ impl Service {
             let json = match msg {
                 ResponseMessage::Info(info) => serde_json::to_string(&info),
                 ResponseMessage::ListKeys(keys) => serde_json::to_string(&keys),
+                ResponseMessage::AddNode(result) => serde_json::to_string(&result),
             }.expect("JSON stringify to succeed");
             res.body(Body::from(json))
         }))
@@ -83,7 +104,7 @@ impl Server {
         Server {}
     }
 
-    pub fn listen(&self, node: Node, port: u16, host: &str) -> Result<(), ()> {
+    pub fn listen(&self, mut node: Node, port: u16, host: &str) -> Result<(), ()> {
          // TODO(indutny): wrap error
         let ip_addr: IpAddr = host.parse().map_err(|_| ())?;
         let bind_addr: SocketAddr = SocketAddr::new(ip_addr, port);
@@ -100,6 +121,9 @@ impl Server {
                 },
                 RequestMessage::ListKeys => {
                     ResponseMessage::ListKeys(node.list_keys().expect("To get response"))
+                },
+                RequestMessage::AddNode(body) => {
+                    ResponseMessage::AddNode(node.add_node(&body).expect("To get response"))
                 },
             };
 
