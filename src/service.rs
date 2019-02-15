@@ -14,10 +14,12 @@ use crate::node::Node;
 
 pub enum ResponseMessage {
     Info(response::Info),
+    ListKeys(response::ListKeys),
 }
 
 pub enum RequestMessage {
     Info,
+    ListKeys,
 }
 
 pub struct RequestPacket {
@@ -41,7 +43,10 @@ impl RPCService {
             let maybe_res_msg = match packet.message {
                 RequestMessage::Info => node.info().map(|info| {
                     ResponseMessage::Info(info)
-                })
+                }),
+                RequestMessage::ListKeys => node.list_keys().map(|info| {
+                    ResponseMessage::ListKeys(info)
+                }),
             };
 
             let res_msg = match maybe_res_msg {
@@ -74,6 +79,7 @@ impl hyper::service::Service for RPCService {
 
         let maybe_req_message = match (req.method(), req.uri().path()) {
             (&Method::GET, "/_info") => Some(RequestMessage::Info),
+            (&Method::GET, "/_keys") => Some(RequestMessage::ListKeys),
             _ => None,
         };
 
@@ -88,7 +94,7 @@ impl hyper::service::Service for RPCService {
 
         let req_packet = RequestPacket {
             response_tx,
-            message: RequestMessage::Info,
+            message: req_message,
         };
 
         if let Err(fail) = self.request_tx.try_send(req_packet) {
@@ -102,6 +108,9 @@ impl hyper::service::Service for RPCService {
                     let json = match res_msg {
                         ResponseMessage::Info(info) => {
                             serde_json::to_string(&info)
+                        },
+                        ResponseMessage::ListKeys(list_keys) => {
+                            serde_json::to_string(&list_keys)
                         },
                     };
 
