@@ -99,16 +99,17 @@ impl hyper::service::Service for RPCService {
             response_rx
                 .from_err::<RPCError>()
                 .and_then(|res_msg| {
-                    let maybe_json = match res_msg {
+                    let json = match res_msg {
                         ResponseMessage::Info(info) => {
                             serde_json::to_string(&info)
                         },
                     };
 
-                    maybe_json.map_err(|err| RPCError::from(err))
+                    json
+                        .map(|json| Body::from(json))
+                        .map_err(|err| RPCError::from(err))
                 })
-                .and_then(move |json| {
-                    let body = Body::from(json);
+                .and_then(move |body| {
                     res.body(body).into_future().from_err()
                 })
         )
