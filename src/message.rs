@@ -44,7 +44,13 @@ pub mod response {
     }
 
     #[derive(Serialize, Deserialize, Debug)]
-    pub struct AddNode {}
+    pub struct AddNode {
+        // Id of responder
+        pub id: Id,
+
+        // Responder's known peers
+        pub peers: Vec<PeerInfo>,
+    }
 
     #[derive(Serialize, Deserialize, Debug)]
     pub struct RemoveNode {}

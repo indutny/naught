@@ -52,7 +52,10 @@ impl Node {
     }
 
     pub fn add_node(&mut self, _msg: &request::AddNode) -> Result<response::AddNode, Error> {
-        Ok(response::AddNode {})
+        Ok(response::AddNode {
+            id: self.id.to_be_bytes(),
+            peers: self.peers.clone(),
+        })
     }
 
     pub fn remove_node(
