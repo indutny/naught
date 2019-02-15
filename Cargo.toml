@@ -1,8 +1,14 @@
 [package]
 name = "naught"
+description = "TBA"
 version = "0.1.0"
 authors = ["Fedor Indutny <fedor@indutny.com>"]
 edition = "2018"
+exclude = [".travis.yml"]
+repository = "https://github.com/indutny/naught"
+readme = "README.md"
+license = "MIT"
+categories = ["database-implementations"]
 
 [dependencies]
 hyper = "^0.12.24"
