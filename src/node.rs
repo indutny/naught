@@ -27,6 +27,7 @@ impl fmt::Display for Error {
     }
 }
 
+#[derive(Default)]
 pub struct Node {
     id: u64,
     peers: Vec<PeerInfo>,

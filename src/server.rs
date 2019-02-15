@@ -10,6 +10,7 @@ use std::net::{IpAddr, SocketAddr};
 use crate::node::Node;
 use crate::service::*;
 
+#[derive(Default)]
 pub struct Server {}
 
 impl Server {
@@ -18,7 +19,7 @@ impl Server {
     }
 
     pub fn listen(&self, node: Node, port: u16, host: &str) -> Result<(), crate::error::Error> {
-        let ip_addr: IpAddr = host.parse().map_err(|err| crate::error::Error::from(err))?;
+        let ip_addr: IpAddr = host.parse().map_err(crate::error::Error::from)?;
         let bind_addr: SocketAddr = SocketAddr::new(ip_addr, port);
 
         let builder = hyper::Server::bind(&bind_addr);
@@ -41,11 +42,5 @@ impl Server {
         );
 
         Ok(())
-    }
-}
-
-impl Default for Server {
-    fn default() -> Self {
-        Server::new()
     }
 }

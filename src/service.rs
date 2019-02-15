@@ -57,16 +57,14 @@ impl RPCService {
             .for_each(move |packet| {
                 let response_tx = packet.response_tx;
                 let maybe_res_msg = match packet.message {
-                    RequestMessage::Info => node.info().map(|res| ResponseMessage::Info(res)),
-                    RequestMessage::ListKeys => {
-                        node.list_keys().map(|res| ResponseMessage::ListKeys(res))
+                    RequestMessage::Info => node.info().map(ResponseMessage::Info),
+                    RequestMessage::ListKeys => node.list_keys().map(ResponseMessage::ListKeys),
+                    RequestMessage::AddNode(body) => {
+                        node.add_node(&body).map(ResponseMessage::AddNode)
                     }
-                    RequestMessage::AddNode(body) => node
-                        .add_node(&body)
-                        .map(|res| ResponseMessage::AddNode(res)),
-                    RequestMessage::RemoveNode(body) => node
-                        .remove_node(&body)
-                        .map(|res| ResponseMessage::RemoveNode(res)),
+                    RequestMessage::RemoveNode(body) => {
+                        node.remove_node(&body).map(ResponseMessage::RemoveNode)
+                    }
                 };
 
                 let res_msg = match maybe_res_msg {
@@ -91,9 +89,7 @@ impl RPCService {
         req.into_body()
             .concat2()
             .from_err::<RPCError>()
-            .and_then(|chunk| {
-                serde_json::from_slice::<T>(&chunk).map_err(|err| RPCError::from(err))
-            })
+            .and_then(|chunk| serde_json::from_slice::<T>(&chunk).map_err(RPCError::from))
     }
 }
 
@@ -115,11 +111,11 @@ impl hyper::service::Service for RPCService {
                 (&Method::GET, "/_info") => Box::new(future::ok(RequestMessage::Info)),
                 (&Method::GET, "/_keys") => Box::new(future::ok(RequestMessage::ListKeys)),
                 (&Method::PUT, "/_nodes") => {
-                    Box::new(RPCService::fetch_json(req).map(|body| RequestMessage::AddNode(body)))
+                    Box::new(RPCService::fetch_json(req).map(RequestMessage::AddNode))
                 }
-                (&Method::DELETE, "/_nodes") => Box::new(
-                    RPCService::fetch_json(req).map(|body| RequestMessage::RemoveNode(body)),
-                ),
+                (&Method::DELETE, "/_nodes") => {
+                    Box::new(RPCService::fetch_json(req).map(RequestMessage::RemoveNode))
+                }
                 _ => {
                     res.status(StatusCode::NOT_FOUND);
                     let body = Body::from("{\"error\":\"Not found\"}");
@@ -150,8 +146,7 @@ impl hyper::service::Service for RPCService {
                         }
                     };
 
-                    json.map(|json| Body::from(json))
-                        .map_err(|err| RPCError::from(err))
+                    json.map(Body::from).map_err(RPCError::from)
                 })
                 .then(move |result| {
                     match result {
