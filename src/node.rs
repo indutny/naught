@@ -5,6 +5,7 @@ extern crate twox_hash;
 
 use std::error::Error as StdError;
 use std::fmt;
+use std::net::SocketAddr;
 
 use serde::Serialize;
 
@@ -27,17 +28,22 @@ impl fmt::Display for Error {
     }
 }
 
-#[derive(Default)]
 pub struct Node {
     id: u64,
     peers: Vec<PeerInfo>,
 }
 
 impl Node {
-    pub fn new() -> Node {
+    pub fn new(addr: SocketAddr) -> Node {
+        let base_uri = format!("http://{}", addr);
+        let id = rand::random::<u64>();
+
         Node {
-            id: rand::random::<u64>(),
-            peers: vec![],
+            id,
+            peers: vec![PeerInfo {
+                id: id.to_be_bytes(),
+                base_uri,
+            }],
         }
     }
 

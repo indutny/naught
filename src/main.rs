@@ -1,9 +1,6 @@
-use naught::node::Node;
 use naught::server::Server;
 
 fn main() {
-    let node = Node::new();
-
     let server = Server::new();
-    server.listen(node, 8000, "::").expect("Listen to not fail");
+    server.listen(8000, "::").expect("Listen to not fail");
 }
