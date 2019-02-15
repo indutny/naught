@@ -3,4 +3,5 @@ pub mod server;
 
 mod error;
 mod message;
+mod peer;
 mod service;

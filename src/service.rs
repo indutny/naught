@@ -60,10 +60,10 @@ impl RPCService {
                     RequestMessage::Info => node.info().map(ResponseMessage::Info),
                     RequestMessage::ListKeys => node.list_keys().map(ResponseMessage::ListKeys),
                     RequestMessage::AddNode(body) => {
-                        node.add_node(&body).map(ResponseMessage::AddNode)
+                        node.add_node(body).map(ResponseMessage::AddNode)
                     }
                     RequestMessage::RemoveNode(body) => {
-                        node.remove_node(&body).map(ResponseMessage::RemoveNode)
+                        node.remove_node(body).map(ResponseMessage::RemoveNode)
                     }
                 };
 

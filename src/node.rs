@@ -10,6 +10,7 @@ use std::net::SocketAddr;
 use serde::Serialize;
 
 use crate::message::*;
+use crate::peer::Peer;
 
 #[derive(Serialize, Debug)]
 pub enum Error {
@@ -30,7 +31,8 @@ impl fmt::Display for Error {
 
 pub struct Node {
     id: u64,
-    peers: Vec<PeerInfo>,
+    peers: Vec<Peer>,
+    peer_ids: Vec<u64>,
 }
 
 impl Node {
@@ -40,17 +42,16 @@ impl Node {
 
         Node {
             id,
-            peers: vec![PeerInfo {
-                id: id.to_be_bytes(),
-                base_uri,
-            }],
+            peers: vec![Peer::new(id, base_uri)],
+            peer_ids: vec![id],
         }
     }
 
+    // RPC below
+
     pub fn info(&self) -> Result<response::Info, Error> {
         Ok(response::Info {
-            id: self.id.to_be_bytes(),
-            peers: self.peers.clone(),
+            state: self.state(),
         })
     }
 
@@ -58,17 +59,39 @@ impl Node {
         Ok(response::ListKeys { keys: vec![] })
     }
 
-    pub fn add_node(&mut self, _msg: &request::AddNode) -> Result<response::AddNode, Error> {
+    pub fn add_node(&mut self, msg: request::AddNode) -> Result<response::AddNode, Error> {
+        // Add new peers
+        for peer in msg.state.peers.into_iter() {
+            self.add_peer(peer);
+        }
+
         Ok(response::AddNode {
-            id: self.id.to_be_bytes(),
-            peers: self.peers.clone(),
+            state: self.state(),
         })
     }
 
     pub fn remove_node(
         &mut self,
-        _msg: &request::RemoveNode,
+        _msg: request::RemoveNode,
     ) -> Result<response::RemoveNode, Error> {
         Ok(response::RemoveNode {})
+    }
+
+    // Internal methods
+
+    fn state(&self) -> State {
+        State {
+            id: self.id.to_be_bytes(),
+            peers: self.peers.iter().map(PeerSummary::from).collect(),
+        }
+    }
+
+    fn add_peer(&mut self, summary: PeerSummary) {
+        let id = u64::from_be_bytes(summary.id);
+
+        if let Err(index) = self.peer_ids.binary_search(&id) {
+            self.peer_ids.insert(index, id);
+            self.peers.insert(index, Peer::new(id, summary.base_uri));
+        }
     }
 }
