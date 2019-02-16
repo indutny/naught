@@ -17,3 +17,5 @@ serde_json = "^1.0.38"
 serde = { version = "^1.0.87", features = ["derive"] }
 siphasher = "^0.3.0"
 tokio = "^0.1.15"
+log = "0.4.6"
+env_logger = "0.6.0"

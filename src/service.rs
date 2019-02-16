@@ -2,6 +2,8 @@ extern crate futures;
 extern crate serde_json;
 extern crate tokio;
 
+use std::time::Instant;
+
 use futures::future::{self, FutureResult};
 use futures::prelude::*;
 use futures::IntoFuture;
@@ -30,6 +32,8 @@ impl RPCService {
         request_rx
             .from_err::<RPCError>()
             .for_each(move |packet| {
+                trace!("RPC request {:?}", packet);
+
                 let packet = match packet {
                     RequestPacket::HTTP(packet) => packet,
                     RequestPacket::Poll => {
@@ -114,6 +118,13 @@ impl hyper::service::Service for RPCService {
             })
             .and_then(|_| response_rx.from_err())
             .and_then(|res_packet| {
+                let poll_in = res_packet.poll_at.map(|t| t.duration_since(Instant::now()));
+                trace!(
+                    "RPC response poll_in={:?} message={:?}",
+                    poll_in,
+                    res_packet.message
+                );
+
                 let json = match res_packet.message {
                     ResponseMessage::Info(info) => serde_json::to_string(&info),
                     ResponseMessage::Ping(ping) => serde_json::to_string(&ping),

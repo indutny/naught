@@ -2,6 +2,8 @@ extern crate futures;
 extern crate hyper;
 extern crate tokio;
 
+extern crate env_logger;
+
 use std::net::{IpAddr, SocketAddr};
 
 use futures::prelude::*;

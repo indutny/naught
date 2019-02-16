@@ -9,11 +9,13 @@ pub mod rpc {
     use serde::Serialize;
     use tokio::sync::oneshot;
 
+    #[derive(Debug)]
     pub enum ResponseMessage {
         Info(response::Info),
         Ping(response::Ping),
     }
 
+    #[derive(Debug)]
     pub struct ResponsePacket {
         pub poll_at: Option<Instant>,
         pub message: ResponseMessage,
@@ -24,16 +26,19 @@ pub mod rpc {
         pub error: crate::error::Error,
     }
 
+    #[derive(Debug)]
     pub enum RequestMessage {
         Info,
         Ping(request::Ping),
     }
 
+    #[derive(Debug)]
     pub struct RequestHTTPPacket {
         pub response_tx: oneshot::Sender<ResponsePacket>,
         pub message: RequestMessage,
     }
 
+    #[derive(Debug)]
     pub enum RequestPacket {
         HTTP(RequestHTTPPacket),
         Poll,
