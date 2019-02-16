@@ -15,6 +15,7 @@ pub enum Error {
     HyperHTTP(String),
     MPSCRecv,
     MPSCSend(String),
+    MPSCTrySend,
     OneShotRecv,
     OneShotSend,
     JSON(String),
@@ -35,6 +36,7 @@ impl fmt::Display for Error {
             Error::HyperHTTP(s) => write!(f, "Hyper HTTP: {}", s),
             Error::MPSCRecv => write!(f, "MPSCRecv"),
             Error::MPSCSend(s) => write!(f, "MPSCSend: {}", s),
+            Error::MPSCTrySend => write!(f, "MPSCTrySend"),
             Error::OneShotRecv => write!(f, "OneShotRecv"),
             Error::OneShotSend => write!(f, "OneShotSend"),
             Error::JSON(s) => write!(f, "JSON Error: {}", s),
@@ -75,6 +77,12 @@ impl From<tokio::sync::mpsc::error::UnboundedRecvError> for Error {
 impl From<tokio::sync::mpsc::error::UnboundedSendError> for Error {
     fn from(err: tokio::sync::mpsc::error::UnboundedSendError) -> Self {
         Error::MPSCSend(err.description().to_string())
+    }
+}
+
+impl<T> From<tokio::sync::mpsc::error::UnboundedTrySendError<T>> for Error {
+    fn from(_: tokio::sync::mpsc::error::UnboundedTrySendError<T>) -> Self {
+        Error::MPSCTrySend
     }
 }
 
