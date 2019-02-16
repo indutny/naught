@@ -2,8 +2,6 @@ extern crate futures;
 extern crate serde_json;
 extern crate tokio;
 
-use std::time::Instant;
-
 use futures::future::{self, FutureResult};
 use futures::prelude::*;
 use futures::IntoFuture;
@@ -34,18 +32,13 @@ impl RPCService {
             .for_each(move |packet| {
                 trace!("RPC request {:?}", packet);
 
-                let packet = match packet {
-                    RequestPacket::HTTP(packet) => packet,
-                    RequestPacket::Poll => {
-                        // TODO(indutny): poll
-                        return future::ok(());
-                    }
-                };
-
                 let response_tx = packet.response_tx;
                 let maybe_res_msg = match packet.message {
+                    RequestMessage::SendPing => node.send_ping().map(ResponseMessage::SendPing),
                     RequestMessage::Info => node.recv_info().map(ResponseMessage::Info),
-                    RequestMessage::Ping(body) => node.recv_ping(body).map(ResponseMessage::Ping),
+                    RequestMessage::RecvPing(body) => {
+                        node.recv_ping(body).map(ResponseMessage::RecvPing)
+                    }
                 };
 
                 let res_msg = match maybe_res_msg {
@@ -55,10 +48,7 @@ impl RPCService {
                     Ok(res_msg) => res_msg,
                 };
 
-                let res_packet = ResponsePacket {
-                    poll_at: node.poll_at(),
-                    message: res_msg,
-                };
+                let res_packet = ResponsePacket { message: res_msg };
 
                 if response_tx.send(res_packet).is_err() {
                     future::err(RPCError::OneShotSend)
@@ -96,7 +86,7 @@ impl hyper::service::Service for RPCService {
             match (req.method(), req.uri().path()) {
                 (&Method::GET, "/_info") => Box::new(future::ok(RequestMessage::Info)),
                 (&Method::PUT, "/_ping") => {
-                    Box::new(RPCService::fetch_json(req).map(RequestMessage::Ping))
+                    Box::new(RPCService::fetch_json(req).map(RequestMessage::RecvPing))
                 }
                 _ => {
                     res.status(StatusCode::NOT_FOUND);
@@ -109,25 +99,23 @@ impl hyper::service::Service for RPCService {
 
         let handle_request = req_message
             .and_then(move |req_message| {
-                let req_packet = RequestPacket::HTTP(RequestHTTPPacket {
-                    response_tx,
-                    message: req_message,
-                });
-
-                request_tx.send(req_packet).from_err()
+                request_tx
+                    .send(RequestPacket {
+                        response_tx,
+                        message: req_message,
+                    })
+                    .from_err()
             })
             .and_then(|_| response_rx.from_err())
             .and_then(|res_packet| {
-                let poll_in = res_packet.poll_at.map(|t| t.duration_since(Instant::now()));
-                trace!(
-                    "RPC response poll_in={:?} message={:?}",
-                    poll_in,
-                    res_packet.message
-                );
+                trace!("RPC response message={:?}", res_packet.message);
 
                 let json = match res_packet.message {
                     ResponseMessage::Info(info) => serde_json::to_string(&info),
-                    ResponseMessage::Ping(ping) => serde_json::to_string(&ping),
+                    ResponseMessage::RecvPing(ping) => serde_json::to_string(&ping),
+                    ResponseMessage::SendPing(_) => {
+                        return Err(RPCError::Unreachable);
+                    }
                 };
 
                 json.map(Body::from).map_err(RPCError::from)

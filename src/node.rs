@@ -6,13 +6,13 @@ use std::error::Error as StdError;
 use std::fmt;
 use std::hash::Hasher;
 use std::net::SocketAddr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use siphasher::sip::SipHasher;
 
 use crate::config::Config;
-use crate::message::{request, response};
+use crate::message::{common, request, response};
 use crate::peer::Peer;
 
 #[derive(Serialize, Debug)]
@@ -62,24 +62,16 @@ impl Node {
         })
     }
 
-    pub fn recv_ping(&mut self, msg: request::Ping) -> Result<response::Ping, Error> {
+    pub fn recv_ping(&mut self, msg: common::Ping) -> Result<common::Ping, Error> {
         self.on_ping(&msg.sender, msg.peers);
 
         Ok(response::Ping {
+            sender: self.uri.clone(),
             peers: self.get_peer_uris(),
         })
     }
 
-    // Public API
-
-    pub fn poll_at(&self) -> Option<Instant> {
-        self.peers.values().fold(None, |acc, peer| {
-            let poll_at = peer.ping_at().min(peer.remove_at());
-            acc.map(|v| v.min(poll_at)).or(Some(poll_at))
-        })
-    }
-
-    pub fn poll(&mut self) {
+    pub fn send_ping(&mut self) -> Result<response::SendPing, Error> {
         let now = Instant::now();
 
         // Remove stale peers
@@ -96,24 +88,17 @@ impl Node {
             .collect();
 
         for key in to_remove {
+            trace!("remove peer: {}", key);
             self.peers.remove(&key);
         }
 
         // Ping alive peers
-        self.peers
-            .values_mut()
-            .filter(|peer| peer.ping_at() <= now)
-            .fold(None, |acc, peer| {
-                peer.mark_pinged();
-                Some(1)
-            });
+        Ok(response::SendPing {
+            peers: self.get_peer_uris(),
+        })
     }
 
-    // Internal methods
-
-    fn get_peer_uris(&self) -> Vec<String> {
-        self.peers.keys().cloned().collect()
-    }
+    // Public API
 
     fn on_ping(&mut self, sender: &str, peers: Vec<String>) {
         self.add_peer(&sender);
@@ -124,7 +109,12 @@ impl Node {
         let sender_peer = self.peers.get_mut(sender).expect("Sender to be present");
 
         sender_peer.mark_alive();
-        sender_peer.mark_pinged();
+    }
+
+    // Internal methods
+
+    fn get_peer_uris(&self) -> Vec<String> {
+        self.peers.keys().cloned().collect()
     }
 
     fn add_peer(&mut self, uri: &str) {
@@ -134,6 +124,7 @@ impl Node {
 
         let uri_str = uri.to_string();
         if !self.peers.contains_key(&uri_str) {
+            trace!("new peer: {}", uri);
             self.peers
                 .insert(uri_str.clone(), Peer::new(uri_str, self.config.clone()));
         }

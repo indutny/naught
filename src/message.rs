@@ -4,20 +4,18 @@ extern crate tokio;
 pub mod rpc {
     use super::*;
 
-    use std::time::Instant;
-
     use serde::Serialize;
     use tokio::sync::oneshot;
 
     #[derive(Debug)]
     pub enum ResponseMessage {
         Info(response::Info),
-        Ping(response::Ping),
+        RecvPing(response::Ping),
+        SendPing(response::SendPing),
     }
 
     #[derive(Debug)]
     pub struct ResponsePacket {
-        pub poll_at: Option<Instant>,
         pub message: ResponseMessage,
     }
 
@@ -29,23 +27,18 @@ pub mod rpc {
     #[derive(Debug)]
     pub enum RequestMessage {
         Info,
-        Ping(request::Ping),
+        RecvPing(request::Ping),
+        SendPing,
     }
 
     #[derive(Debug)]
-    pub struct RequestHTTPPacket {
+    pub struct RequestPacket {
         pub response_tx: oneshot::Sender<ResponsePacket>,
         pub message: RequestMessage,
     }
-
-    #[derive(Debug)]
-    pub enum RequestPacket {
-        HTTP(RequestHTTPPacket),
-        Poll,
-    }
 }
 
-pub mod request {
+pub mod common {
     use super::*;
     use serde::{Deserialize, Serialize};
 
@@ -56,9 +49,17 @@ pub mod request {
     }
 }
 
+pub mod request {
+    use super::*;
+
+    pub use common::Ping;
+}
+
 pub mod response {
     use super::*;
     use serde::{Deserialize, Serialize};
+
+    pub use common::Ping;
 
     #[derive(Serialize, Deserialize, Debug)]
     pub struct Info {
@@ -69,8 +70,8 @@ pub mod response {
         pub peers: Vec<String>,
     }
 
-    #[derive(Serialize, Deserialize, Debug)]
-    pub struct Ping {
+    #[derive(Debug)]
+    pub struct SendPing {
         pub peers: Vec<String>,
     }
 }

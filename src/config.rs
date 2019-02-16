@@ -24,8 +24,8 @@ impl Config {
             hash_seed,
             replicate: 0,
             initial_peers: vec![],
-            ping_every: Duration::from_secs(1),
-            alive_timeout: Duration::from_secs(4),
+            ping_every: Duration::from_secs(5),
+            alive_timeout: Duration::from_secs(30),
         }
     }
 }

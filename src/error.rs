@@ -18,6 +18,8 @@ pub enum Error {
     MPSCTrySend,
     OneShotRecv,
     OneShotSend,
+    TimerError,
+    Unreachable,
     JSON(String),
 }
 
@@ -39,6 +41,8 @@ impl fmt::Display for Error {
             Error::MPSCTrySend => write!(f, "MPSCTrySend"),
             Error::OneShotRecv => write!(f, "OneShotRecv"),
             Error::OneShotSend => write!(f, "OneShotSend"),
+            Error::TimerError => write!(f, "TimerError"),
+            Error::Unreachable => write!(f, "Unreachable"),
             Error::JSON(s) => write!(f, "JSON Error: {}", s),
         }
     }
@@ -89,6 +93,12 @@ impl<T> From<tokio::sync::mpsc::error::UnboundedTrySendError<T>> for Error {
 impl From<tokio::sync::oneshot::error::RecvError> for Error {
     fn from(_: tokio::sync::oneshot::error::RecvError) -> Self {
         Error::OneShotRecv
+    }
+}
+
+impl From<tokio::timer::Error> for Error {
+    fn from(_: tokio::timer::Error) -> Self {
+        Error::TimerError
     }
 }
 
