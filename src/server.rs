@@ -31,7 +31,6 @@ impl Server {
         let server = builder.serve(move || RPCService::new(request_tx.clone()));
 
         let node = Node::new(server.local_addr(), self.config.clone());
-
         let rpc = RPCService::run_rpc(request_rx, node);
 
         hyper::rt::run(server.from_err().join(rpc).map(|_| ()).map_err(

@@ -1,4 +1,44 @@
 extern crate serde;
+extern crate tokio;
+
+pub mod rpc {
+    use super::*;
+
+    use std::time::Instant;
+
+    use serde::Serialize;
+    use tokio::sync::oneshot;
+
+    pub enum ResponseMessage {
+        Info(response::Info),
+        Ping(response::Ping),
+    }
+
+    pub struct ResponsePacket {
+        pub poll_at: Option<Instant>,
+        pub message: ResponseMessage,
+    }
+
+    #[derive(Serialize, Debug)]
+    pub struct ResponseError {
+        pub error: crate::error::Error,
+    }
+
+    pub enum RequestMessage {
+        Info,
+        Ping(request::Ping),
+    }
+
+    pub struct RequestHTTPPacket {
+        pub response_tx: oneshot::Sender<ResponsePacket>,
+        pub message: RequestMessage,
+    }
+
+    pub enum RequestPacket {
+        HTTP(RequestHTTPPacket),
+        Poll,
+    }
+}
 
 pub mod request {
     use super::*;

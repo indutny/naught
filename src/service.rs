@@ -1,5 +1,4 @@
 extern crate futures;
-extern crate serde;
 extern crate serde_json;
 extern crate tokio;
 
@@ -8,32 +7,12 @@ use futures::prelude::*;
 use futures::IntoFuture;
 use hyper::{Body, Method, Request, Response, StatusCode};
 use serde::de::DeserializeOwned;
-use serde::Serialize;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::Error as RPCError;
+use crate::message::rpc::*;
 use crate::message::{request, response};
 use crate::node::Node;
-
-pub enum ResponseMessage {
-    Info(response::Info),
-    Ping(response::Ping),
-}
-
-#[derive(Serialize, Debug)]
-struct ResponseError {
-    error: RPCError,
-}
-
-pub enum RequestMessage {
-    Info,
-    Ping(request::Ping),
-}
-
-pub struct RequestPacket {
-    response_tx: oneshot::Sender<ResponseMessage>,
-    message: RequestMessage,
-}
 
 pub struct RPCService {
     request_tx: mpsc::UnboundedSender<RequestPacket>,
@@ -51,10 +30,18 @@ impl RPCService {
         request_rx
             .from_err::<RPCError>()
             .for_each(move |packet| {
+                let packet = match packet {
+                    RequestPacket::HTTP(packet) => packet,
+                    RequestPacket::Poll => {
+                        // TODO(indutny): poll
+                        return future::ok(());
+                    }
+                };
+
                 let response_tx = packet.response_tx;
                 let maybe_res_msg = match packet.message {
-                    RequestMessage::Info => node.info().map(ResponseMessage::Info),
-                    RequestMessage::Ping(body) => node.ping(body).map(ResponseMessage::Ping),
+                    RequestMessage::Info => node.recv_info().map(ResponseMessage::Info),
+                    RequestMessage::Ping(body) => node.recv_ping(body).map(ResponseMessage::Ping),
                 };
 
                 let res_msg = match maybe_res_msg {
@@ -64,7 +51,12 @@ impl RPCService {
                     Ok(res_msg) => res_msg,
                 };
 
-                if response_tx.send(res_msg).is_err() {
+                let res_packet = ResponsePacket {
+                    poll_at: node.poll_at(),
+                    message: res_msg,
+                };
+
+                if response_tx.send(res_packet).is_err() {
                     future::err(RPCError::OneShotSend)
                 } else {
                     future::ok(())
@@ -111,40 +103,40 @@ impl hyper::service::Service for RPCService {
 
         let request_tx = self.request_tx.clone();
 
-        Box::new(
-            req_message
-                .and_then(move |req_message| {
-                    let req_packet = RequestPacket {
-                        response_tx,
-                        message: req_message,
-                    };
+        let handle_request = req_message
+            .and_then(move |req_message| {
+                let req_packet = RequestPacket::HTTP(RequestHTTPPacket {
+                    response_tx,
+                    message: req_message,
+                });
 
-                    request_tx.send(req_packet).from_err()
-                })
-                .and_then(|_| response_rx.from_err())
-                .and_then(|res_msg| {
-                    let json = match res_msg {
-                        ResponseMessage::Info(info) => serde_json::to_string(&info),
-                        ResponseMessage::Ping(ping) => serde_json::to_string(&ping),
-                    };
+                request_tx.send(req_packet).from_err()
+            })
+            .and_then(|_| response_rx.from_err())
+            .and_then(|res_packet| {
+                let json = match res_packet.message {
+                    ResponseMessage::Info(info) => serde_json::to_string(&info),
+                    ResponseMessage::Ping(ping) => serde_json::to_string(&ping),
+                };
 
-                    json.map(Body::from).map_err(RPCError::from)
-                })
-                .then(move |result| {
-                    match result {
-                        Ok(body) => res.body(body),
-                        Err(err) => {
-                            let maybe_json = serde_json::to_string(&ResponseError { error: err });
-                            match maybe_json {
-                                Ok(json) => res.body(Body::from(json)),
-                                Err(_) => res.body(Body::from("{\"error\":\"unknown error\"}")),
-                            }
+                json.map(Body::from).map_err(RPCError::from)
+            })
+            .then(move |result| {
+                match result {
+                    Ok(body) => res.body(body),
+                    Err(err) => {
+                        let maybe_json = serde_json::to_string(&ResponseError { error: err });
+                        match maybe_json {
+                            Ok(json) => res.body(Body::from(json)),
+                            Err(_) => res.body(Body::from("{\"error\":\"unknown error\"}")),
                         }
                     }
-                    .into_future()
-                    .from_err()
-                }),
-        )
+                }
+                .into_future()
+                .from_err()
+            });
+
+        Box::new(handle_request)
     }
 }
 

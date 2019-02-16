@@ -4,18 +4,24 @@ use std::time::Instant;
 use crate::config::Config;
 
 pub struct Peer {
+    config: Config,
+
     uri: String,
-    last_ping: Instant,
-    last_alive: Instant,
+    ping_at: Instant,
+    remove_at: Instant,
 }
 
 impl Peer {
-    pub fn new(uri: String) -> Self {
+    pub fn new(uri: String, config: Config) -> Self {
         let now = Instant::now();
+        let ping_at = now + config.ping_every;
+        let remove_at = now + config.alive_timeout;
+
         Self {
+            config,
             uri,
-            last_ping: now,
-            last_alive: now,
+            ping_at,
+            remove_at,
         }
     }
 
@@ -25,13 +31,20 @@ impl Peer {
 
     pub fn mark_alive(&mut self) {
         let now = Instant::now();
-        self.last_alive = now;
-        self.last_ping = now;
+        self.remove_at = now + self.config.alive_timeout;
     }
 
-    pub fn ping_at(&mut self, config: &Config) -> Instant {
-        self.last_ping += config.ping_every;
-        self.last_ping
+    pub fn mark_pinged(&mut self) {
+        let now = Instant::now();
+        self.ping_at = now + self.config.ping_every;
+    }
+
+    pub fn remove_at(&self) -> Instant {
+        self.remove_at
+    }
+
+    pub fn ping_at(&self) -> Instant {
+        self.ping_at
     }
 }
 
