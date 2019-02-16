@@ -1,15 +1,17 @@
-extern crate jch;
-extern crate rand;
 extern crate serde;
-extern crate twox_hash;
+extern crate siphasher;
 
+use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::fmt;
+use std::hash::Hasher;
 use std::net::SocketAddr;
 
 use serde::Serialize;
+use siphasher::sip::SipHasher;
 
-use crate::message::*;
+use crate::config::Config;
+use crate::message::{request, response};
 use crate::peer::Peer;
 
 #[derive(Serialize, Debug)]
@@ -30,70 +32,69 @@ impl fmt::Display for Error {
 }
 
 pub struct Node {
-    id: u64,
-
-    // Two sorted vectors
-    peers: Vec<Peer>,
-    peer_ids: Vec<u64>,
+    config: Config,
+    uri: String,
+    peers: HashMap<String, Peer>,
 }
 
 impl Node {
-    pub fn new(addr: SocketAddr) -> Node {
-        let base_uri = format!("http://{}", addr);
-        let id = rand::random::<u64>();
+    pub fn new(addr: SocketAddr, config: Config) -> Node {
+        let uri = format!("http://{}", addr);
 
         Node {
-            id,
-            peers: vec![Peer::new(id, base_uri)],
-            peer_ids: vec![id],
+            config,
+            uri,
+            peers: HashMap::new(),
         }
     }
 
     // RPC below
 
+    // NOTE: This is not a part of p2p protocol, mostly needed for debugging
     pub fn info(&self) -> Result<response::Info, Error> {
         Ok(response::Info {
-            state: self.state(),
+            hash_seed: vec![self.config.hash_seed.0, self.config.hash_seed.1],
+            replicate: self.config.replicate,
+
+            uri: self.uri.clone(),
+            peers: self.get_peer_uris(),
         })
     }
 
-    pub fn list_keys(&self) -> Result<response::ListKeys, Error> {
-        Ok(response::ListKeys { keys: vec![] })
-    }
+    pub fn ping(&mut self, msg: request::Ping) -> Result<response::Ping, Error> {
+        self.on_ping(&msg.sender, msg.peers);
 
-    pub fn add_node(&mut self, msg: request::AddNode) -> Result<response::AddNode, Error> {
-        // Add new peers
-        for peer in msg.state.peers.into_iter() {
-            self.add_peer(peer);
-        }
-
-        Ok(response::AddNode {
-            state: self.state(),
+        Ok(response::Ping {
+            peers: self.get_peer_uris(),
         })
-    }
-
-    pub fn remove_node(
-        &mut self,
-        _msg: request::RemoveNode,
-    ) -> Result<response::RemoveNode, Error> {
-        Ok(response::RemoveNode {})
     }
 
     // Internal methods
 
-    fn state(&self) -> State {
-        State {
-            id: self.id.to_be_bytes(),
-            peers: self.peers.iter().map(PeerSummary::from).collect(),
-        }
+    fn get_peer_uris(&self) -> Vec<String> {
+        self.peers.iter().map(|(uri, _)| uri.clone()).collect()
     }
 
-    fn add_peer(&mut self, summary: PeerSummary) {
-        let id = u64::from_be_bytes(summary.id);
+    fn on_ping(&mut self, sender: &str, peers: Vec<String>) {
+        self.add_peer(&sender);
+        for peer_uri in peers {
+            self.add_peer(&peer_uri);
+        }
 
-        if let Err(index) = self.peer_ids.binary_search(&id) {
-            self.peer_ids.insert(index, id);
-            self.peers.insert(index, Peer::new(id, summary.base_uri));
+        self.peers
+            .get_mut(sender)
+            .expect("Sender to be present")
+            .mark_alive();
+    }
+
+    fn add_peer(&mut self, uri: &str) {
+        if uri == self.uri {
+            return;
+        }
+
+        let uri_str = uri.to_string();
+        if !self.peers.contains_key(&uri_str) {
+            self.peers.insert(uri_str.clone(), Peer::new(uri_str));
         }
     }
 }

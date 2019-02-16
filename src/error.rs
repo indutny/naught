@@ -1,6 +1,6 @@
 extern crate hyper;
 extern crate serde;
-extern crate tokio_sync;
+extern crate tokio;
 
 use std::error::Error as StdError;
 use std::fmt;
@@ -66,20 +66,20 @@ impl From<hyper::http::Error> for Error {
     }
 }
 
-impl From<tokio_sync::mpsc::error::UnboundedRecvError> for Error {
-    fn from(_: tokio_sync::mpsc::error::UnboundedRecvError) -> Self {
+impl From<tokio::sync::mpsc::error::UnboundedRecvError> for Error {
+    fn from(_: tokio::sync::mpsc::error::UnboundedRecvError) -> Self {
         Error::MPSCRecv
     }
 }
 
-impl From<tokio_sync::mpsc::error::UnboundedSendError> for Error {
-    fn from(err: tokio_sync::mpsc::error::UnboundedSendError) -> Self {
+impl From<tokio::sync::mpsc::error::UnboundedSendError> for Error {
+    fn from(err: tokio::sync::mpsc::error::UnboundedSendError) -> Self {
         Error::MPSCSend(err.description().to_string())
     }
 }
 
-impl From<tokio_sync::oneshot::error::RecvError> for Error {
-    fn from(_: tokio_sync::oneshot::error::RecvError) -> Self {
+impl From<tokio::sync::oneshot::error::RecvError> for Error {
+    fn from(_: tokio::sync::oneshot::error::RecvError) -> Self {
         Error::OneShotRecv
     }
 }

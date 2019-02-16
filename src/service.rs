@@ -1,7 +1,7 @@
 extern crate futures;
 extern crate serde;
 extern crate serde_json;
-extern crate tokio_sync;
+extern crate tokio;
 
 use futures::future::{self, FutureResult};
 use futures::prelude::*;
@@ -9,7 +9,7 @@ use futures::IntoFuture;
 use hyper::{Body, Method, Request, Response, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use tokio_sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::error::Error as RPCError;
 use crate::message::{request, response};
@@ -17,9 +17,7 @@ use crate::node::Node;
 
 pub enum ResponseMessage {
     Info(response::Info),
-    ListKeys(response::ListKeys),
-    AddNode(response::AddNode),
-    RemoveNode(response::RemoveNode),
+    Ping(response::Ping),
 }
 
 #[derive(Serialize, Debug)]
@@ -29,9 +27,7 @@ struct ResponseError {
 
 pub enum RequestMessage {
     Info,
-    ListKeys,
-    AddNode(request::AddNode),
-    RemoveNode(request::RemoveNode),
+    Ping(request::Ping),
 }
 
 pub struct RequestPacket {
@@ -48,7 +44,7 @@ impl RPCService {
         RPCService { request_tx }
     }
 
-    pub fn forward_rpc(
+    pub fn run_rpc(
         request_rx: mpsc::UnboundedReceiver<RequestPacket>,
         mut node: Node,
     ) -> impl Future<Item = (), Error = RPCError> {
@@ -58,13 +54,7 @@ impl RPCService {
                 let response_tx = packet.response_tx;
                 let maybe_res_msg = match packet.message {
                     RequestMessage::Info => node.info().map(ResponseMessage::Info),
-                    RequestMessage::ListKeys => node.list_keys().map(ResponseMessage::ListKeys),
-                    RequestMessage::AddNode(body) => {
-                        node.add_node(body).map(ResponseMessage::AddNode)
-                    }
-                    RequestMessage::RemoveNode(body) => {
-                        node.remove_node(body).map(ResponseMessage::RemoveNode)
-                    }
+                    RequestMessage::Ping(body) => node.ping(body).map(ResponseMessage::Ping),
                 };
 
                 let res_msg = match maybe_res_msg {
@@ -109,12 +99,8 @@ impl hyper::service::Service for RPCService {
         let req_message: Box<Future<Item = RequestMessage, Error = RPCError> + Send> =
             match (req.method(), req.uri().path()) {
                 (&Method::GET, "/_info") => Box::new(future::ok(RequestMessage::Info)),
-                (&Method::GET, "/_keys") => Box::new(future::ok(RequestMessage::ListKeys)),
-                (&Method::PUT, "/_nodes") => {
-                    Box::new(RPCService::fetch_json(req).map(RequestMessage::AddNode))
-                }
-                (&Method::DELETE, "/_nodes") => {
-                    Box::new(RPCService::fetch_json(req).map(RequestMessage::RemoveNode))
+                (&Method::PUT, "/_ping") => {
+                    Box::new(RPCService::fetch_json(req).map(RequestMessage::Ping))
                 }
                 _ => {
                     res.status(StatusCode::NOT_FOUND);
@@ -139,11 +125,7 @@ impl hyper::service::Service for RPCService {
                 .and_then(|res_msg| {
                     let json = match res_msg {
                         ResponseMessage::Info(info) => serde_json::to_string(&info),
-                        ResponseMessage::ListKeys(list_keys) => serde_json::to_string(&list_keys),
-                        ResponseMessage::AddNode(add_node) => serde_json::to_string(&add_node),
-                        ResponseMessage::RemoveNode(remove_node) => {
-                            serde_json::to_string(&remove_node)
-                        }
+                        ResponseMessage::Ping(ping) => serde_json::to_string(&ping),
                     };
 
                     json.map(Body::from).map_err(RPCError::from)
