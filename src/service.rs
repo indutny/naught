@@ -34,7 +34,9 @@ impl RPCService {
 
                 let response_tx = packet.response_tx;
                 let maybe_res_msg = match packet.message {
-                    RequestMessage::SendPing => node.send_ping().map(ResponseMessage::SendPing),
+                    RequestMessage::GetPingURIs => {
+                        node.get_ping_uris().map(ResponseMessage::GetPingURIs)
+                    }
                     RequestMessage::Info => node.recv_info().map(ResponseMessage::Info),
                     RequestMessage::RecvPing(body) => {
                         node.recv_ping(body).map(ResponseMessage::RecvPing)
@@ -113,7 +115,7 @@ impl hyper::service::Service for RPCService {
                 let json = match res_packet.message {
                     ResponseMessage::Info(info) => serde_json::to_string(&info),
                     ResponseMessage::RecvPing(ping) => serde_json::to_string(&ping),
-                    ResponseMessage::SendPing(_) => {
+                    ResponseMessage::GetPingURIs(_) => {
                         return Err(RPCError::Unreachable);
                     }
                 };

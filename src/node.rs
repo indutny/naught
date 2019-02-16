@@ -1,4 +1,7 @@
+extern crate futures;
+extern crate hyper;
 extern crate serde;
+extern crate serde_json;
 extern crate siphasher;
 
 use std::collections::HashMap;
@@ -8,12 +11,17 @@ use std::hash::Hasher;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
+use futures::future;
+use futures::prelude::*;
 use serde::Serialize;
 use siphasher::sip::SipHasher;
 
 use crate::config::Config;
+use crate::error::Error as RPCError;
 use crate::message::{common, request, response};
 use crate::peer::Peer;
+
+type FutureBox = Box<Future<Item = (), Error = RPCError> + Send>;
 
 #[derive(Serialize, Debug)]
 pub enum Error {
@@ -71,7 +79,7 @@ impl Node {
         })
     }
 
-    pub fn send_ping(&mut self) -> Result<response::SendPing, Error> {
+    pub fn get_ping_uris(&mut self) -> Result<response::GetPingURIs, Error> {
         let now = Instant::now();
 
         // Remove stale peers
@@ -93,12 +101,71 @@ impl Node {
         }
 
         // Ping alive peers
-        Ok(response::SendPing {
+        Ok(response::GetPingURIs {
             peers: self.get_peer_uris(),
         })
     }
 
     // Public API
+
+    pub fn send_ping(uris: Vec<String>) -> FutureBox {
+        let acc: FutureBox = Box::new(future::ok(()));
+        let join = uris
+            .into_iter()
+            .map(|uri| -> FutureBox { Node::send_single_ping(uri) })
+            .fold(acc, |acc: FutureBox, f: FutureBox| -> FutureBox {
+                Box::new(f)
+            })
+            .map(|_| ());
+        Box::new(join)
+    }
+
+    // Internal methods
+
+    fn send_single_ping(uri: String) -> FutureBox {
+        let uri = format!("{}/_ping", uri);
+
+        let request = hyper::Request::builder()
+            .method("PUT")
+            .uri(uri.clone())
+            .header("content-type", "application/json")
+            .body(hyper::Body::empty());
+
+        let request = match request {
+            Ok(request) => request,
+            Err(err) => {
+                error!(
+                    "ping to {} failed due to error: {:#?}",
+                    uri,
+                    RPCError::from(err)
+                );
+                return Box::new(future::ok(()));
+            }
+        };
+
+        let client = hyper::Client::new();
+
+        let f = client
+            .request(request)
+            .and_then(|res| res.into_body().concat2())
+            .from_err::<RPCError>()
+            .and_then(|chunk| {
+                serde_json::from_slice::<common::Ping>(&chunk).map_err(RPCError::from)
+            })
+            .and_then(|ping| {
+                eprintln!("{:#?}", ping);
+                future::ok(())
+            })
+            .from_err::<RPCError>()
+            .or_else(move |err| {
+                // Single failed ping should not prevent other pings
+                // from happening
+                error!("ping to {} failed due to error: {:#?}", uri, err);
+                future::ok(())
+            });
+
+        Box::new(f)
+    }
 
     fn on_ping(&mut self, sender: &str, peers: Vec<String>) {
         self.add_peer(&sender);
@@ -110,8 +177,6 @@ impl Node {
 
         sender_peer.mark_alive();
     }
-
-    // Internal methods
 
     fn get_peer_uris(&self) -> Vec<String> {
         self.peers.keys().cloned().collect()

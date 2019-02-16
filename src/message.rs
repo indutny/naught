@@ -11,7 +11,7 @@ pub mod rpc {
     pub enum ResponseMessage {
         Info(response::Info),
         RecvPing(response::Ping),
-        SendPing(response::SendPing),
+        GetPingURIs(response::GetPingURIs),
     }
 
     #[derive(Debug)]
@@ -28,7 +28,7 @@ pub mod rpc {
     pub enum RequestMessage {
         Info,
         RecvPing(request::Ping),
-        SendPing,
+        GetPingURIs,
     }
 
     #[derive(Debug)]
@@ -71,7 +71,7 @@ pub mod response {
     }
 
     #[derive(Debug)]
-    pub struct SendPing {
+    pub struct GetPingURIs {
         pub peers: Vec<String>,
     }
 }

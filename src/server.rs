@@ -46,7 +46,7 @@ impl Server {
 
                 let packet = RequestPacket {
                     response_tx,
-                    message: RequestMessage::SendPing,
+                    message: RequestMessage::GetPingURIs,
                 };
 
                 poll_tx
@@ -54,15 +54,20 @@ impl Server {
                     .send(packet)
                     .from_err::<Error>()
                     .and_then(move |_| response_rx.from_err())
-                    .and_then(|res_packet| {
-                        let peers = match res_packet.message {
-                            ResponseMessage::SendPing(msg) => msg.peers,
-                            _ => {
-                                return future::err(Error::Unreachable);
-                            }
-                        };
+                    .and_then(
+                        |res_packet| -> Box<Future<Item = (), Error = Error> + Send> {
+                            let msg = match res_packet.message {
+                                ResponseMessage::GetPingURIs(msg) => msg,
+                                _ => {
+                                    return Box::new(future::err(Error::Unreachable));
+                                }
+                            };
 
-                        // TODO(indutny): ping the peers
+                            Box::new(Node::send_ping(msg.peers).from_err())
+                        },
+                    )
+                    .or_else(|err| {
+                        eprintln!("Got interval error: {:#?}", err);
                         future::ok(())
                     })
             });
@@ -75,7 +80,7 @@ impl Server {
                 .join(rpc)
                 .join(interval)
                 .map(|_| ())
-                .map_err(move |err: Error| {
+                .map_err(|err: Error| {
                     eprintln!("Got error: {:#?}", err);
                 }),
         );
