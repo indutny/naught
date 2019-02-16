@@ -63,7 +63,7 @@ impl Server {
                                 }
                             };
 
-                            Box::new(Node::send_ping(msg.peers).from_err())
+                            Box::new(Node::send_ping(msg.ping, msg.peers).from_err())
                         },
                     )
                     .or_else(|err| {

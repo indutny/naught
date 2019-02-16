@@ -73,5 +73,6 @@ pub mod response {
     #[derive(Debug)]
     pub struct GetPingURIs {
         pub peers: Vec<String>,
+        pub ping: common::Ping,
     }
 }

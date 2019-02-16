@@ -73,10 +73,7 @@ impl Node {
     pub fn recv_ping(&mut self, msg: common::Ping) -> Result<common::Ping, Error> {
         self.on_ping(&msg.sender, msg.peers);
 
-        Ok(response::Ping {
-            sender: self.uri.clone(),
-            peers: self.get_peer_uris(),
-        })
+        Ok(self.construct_ping())
     }
 
     pub fn get_ping_uris(&mut self) -> Result<response::GetPingURIs, Error> {
@@ -102,34 +99,49 @@ impl Node {
 
         // Ping alive peers
         Ok(response::GetPingURIs {
+            ping: self.construct_ping(),
             peers: self.get_peer_uris(),
         })
     }
 
     // Public API
 
-    pub fn send_ping(uris: Vec<String>) -> FutureBox {
+    pub fn send_ping(ping: common::Ping, uris: Vec<String>) -> FutureBox {
         let acc: FutureBox = Box::new(future::ok(()));
         let join = uris
             .into_iter()
-            .map(|uri| -> FutureBox { Node::send_single_ping(uri) })
-            .fold(acc, |acc: FutureBox, f: FutureBox| -> FutureBox {
-                Box::new(f)
-            })
-            .map(|_| ());
+            .zip(std::iter::repeat(&ping))
+            .map(|(uri, ping)| -> FutureBox { Node::send_single_ping(ping, uri) })
+            .fold(acc, |acc: FutureBox, f: FutureBox| {
+                Box::new(acc.join(f).map(|_| ()))
+            });
         Box::new(join)
     }
 
     // Internal methods
 
-    fn send_single_ping(uri: String) -> FutureBox {
+    fn construct_ping(&self) -> common::Ping {
+        common::Ping {
+            sender: self.uri.clone(),
+            peers: self.get_peer_uris(),
+        }
+    }
+
+    fn send_single_ping(ping: &common::Ping, uri: String) -> FutureBox {
         let uri = format!("{}/_ping", uri);
+
+        let json = match serde_json::to_string(ping) {
+            Ok(json) => json,
+            Err(err) => {
+                return Box::new(future::err(RPCError::from(err)));
+            }
+        };
 
         let request = hyper::Request::builder()
             .method("PUT")
             .uri(uri.clone())
             .header("content-type", "application/json")
-            .body(hyper::Body::empty());
+            .body(hyper::Body::from(json));
 
         let request = match request {
             Ok(request) => request,
@@ -153,7 +165,7 @@ impl Node {
                 serde_json::from_slice::<common::Ping>(&chunk).map_err(RPCError::from)
             })
             .and_then(|ping| {
-                eprintln!("{:#?}", ping);
+                // TODO(indutny): return ping
                 future::ok(())
             })
             .from_err::<RPCError>()
@@ -168,6 +180,10 @@ impl Node {
     }
 
     fn on_ping(&mut self, sender: &str, peers: Vec<String>) {
+        if sender == self.uri {
+            return;
+        }
+
         self.add_peer(&sender);
         for peer_uri in peers {
             self.add_peer(&peer_uri);
