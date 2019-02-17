@@ -1,6 +1,7 @@
 extern crate futures;
 extern crate serde_json;
-extern crate tokio_lock;
+
+use std::sync::{Arc, Mutex};
 
 use futures::future::{self, FutureResult};
 use futures::prelude::*;
@@ -8,41 +9,38 @@ use futures::IntoFuture;
 use hyper::{Body, Method, Request, Response, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use tokio_lock::Lock;
 
-use crate::error::Error as RPCError;
-use crate::message::{request, response};
+use crate::error::Error;
+use crate::message::response;
 use crate::node::Node;
 
 pub struct RPCService {
-    node: Lock<Node, RPCError>,
+    node: Arc<Mutex<Node>>,
 }
 
 impl RPCService {
-    pub fn new(node: Lock<Node, RPCError>) -> RPCService {
+    pub fn new(node: Arc<Mutex<Node>>) -> RPCService {
         RPCService { node }
     }
 
-    fn fetch_json<T: DeserializeOwned>(
-        req: Request<Body>,
-    ) -> impl Future<Item = T, Error = RPCError> {
+    fn fetch_json<T: DeserializeOwned>(req: Request<Body>) -> impl Future<Item = T, Error = Error> {
         req.into_body()
             .concat2()
-            .from_err::<RPCError>()
-            .and_then(|chunk| serde_json::from_slice::<T>(&chunk).map_err(RPCError::from))
+            .from_err::<Error>()
+            .and_then(|chunk| serde_json::from_slice::<T>(&chunk).map_err(Error::from))
     }
 
-    fn to_json_body<T: Serialize>(value: &T) -> Result<Body, RPCError> {
+    fn to_json_body<T: Serialize>(value: &T) -> Result<Body, Error> {
         serde_json::to_string(value)
             .map(Body::from)
-            .map_err(|err| RPCError::from(err))
+            .map_err(|err| Error::from(err))
     }
 }
 
 impl hyper::service::Service for RPCService {
     type ReqBody = Body;
     type ResBody = Body;
-    type Error = RPCError;
+    type Error = Error;
     type Future = Box<Future<Item = Response<Body>, Error = Self::Error> + Send>;
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
@@ -50,23 +48,21 @@ impl hyper::service::Service for RPCService {
         res.header("content-type", "application/json");
 
         // TODO(indutny): authorization
-        let body: Box<Future<Item = Body, Error = RPCError> + Send> =
+        let body: Box<Future<Item = Body, Error = Error> + Send> =
             match (req.method(), req.uri().path()) {
-                (&Method::GET, "/_info") => Box::new(
+                (&Method::GET, "/_info") => Box::new(future::result(
                     self.node
-                        .get(|node| future::result(node.recv_info()).from_err())
-                        .and_then(|res| RPCService::to_json_body(&res)),
-                ),
+                        .lock()
+                        .expect("lock to acquire")
+                        .recv_info()
+                        .and_then(|info| RPCService::to_json_body(&info)),
+                )),
                 (&Method::PUT, "/_ping") => {
-                    // TODO(indutny): so many clones
-                    let mut node = self.node.clone();
-
+                    let node = self.node.clone();
                     Box::new(
                         RPCService::fetch_json(req)
-                            .and_then(move |ping: request::Ping| {
-                                node.get_mut(move |node| {
-                                    future::result(node.recv_ping(&ping)).from_err()
-                                })
+                            .and_then(move |ping| {
+                                node.lock().expect("lock to acquire").recv_ping(&ping)
                             })
                             .and_then(|res| RPCService::to_json_body(&res)),
                     )
@@ -93,7 +89,7 @@ impl hyper::service::Service for RPCService {
 impl IntoFuture for RPCService {
     type Future = FutureResult<Self::Item, Self::Error>;
     type Item = Self;
-    type Error = RPCError;
+    type Error = Error;
 
     fn into_future(self) -> Self::Future {
         future::ok(self)

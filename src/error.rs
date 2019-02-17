@@ -1,7 +1,6 @@
 extern crate hyper;
 extern crate serde;
 extern crate tokio;
-extern crate tokio_lock;
 
 use std::error::Error as StdError;
 use std::fmt;
@@ -13,13 +12,7 @@ pub enum Error {
     AddrParse(String),
     Hyper(String),
     HyperHTTP(String),
-    MPSCRecv,
-    MPSCSend(String),
-    MPSCTrySend,
-    OneShotRecv,
-    OneShotSend,
     TimerError,
-    LockError(String),
     Unreachable,
     JSON(String),
 }
@@ -36,13 +29,7 @@ impl fmt::Display for Error {
             Error::AddrParse(s) => write!(f, "AddrParse: {}", s),
             Error::Hyper(s) => write!(f, "Hyper: {}", s),
             Error::HyperHTTP(s) => write!(f, "Hyper HTTP: {}", s),
-            Error::MPSCRecv => write!(f, "MPSCRecv"),
-            Error::MPSCSend(s) => write!(f, "MPSCSend: {}", s),
-            Error::MPSCTrySend => write!(f, "MPSCTrySend"),
-            Error::OneShotRecv => write!(f, "OneShotRecv"),
-            Error::OneShotSend => write!(f, "OneShotSend"),
             Error::TimerError => write!(f, "TimerError"),
-            Error::LockError(s) => write!(f, "LockError: {}", s),
             Error::Unreachable => write!(f, "Unreachable"),
             Error::JSON(s) => write!(f, "JSON Error: {}", s),
         }
@@ -67,39 +54,9 @@ impl From<hyper::http::Error> for Error {
     }
 }
 
-impl From<tokio::sync::mpsc::error::UnboundedRecvError> for Error {
-    fn from(_: tokio::sync::mpsc::error::UnboundedRecvError) -> Self {
-        Error::MPSCRecv
-    }
-}
-
-impl From<tokio::sync::mpsc::error::UnboundedSendError> for Error {
-    fn from(err: tokio::sync::mpsc::error::UnboundedSendError) -> Self {
-        Error::MPSCSend(err.description().to_string())
-    }
-}
-
-impl<T> From<tokio::sync::mpsc::error::UnboundedTrySendError<T>> for Error {
-    fn from(_: tokio::sync::mpsc::error::UnboundedTrySendError<T>) -> Self {
-        Error::MPSCTrySend
-    }
-}
-
-impl From<tokio::sync::oneshot::error::RecvError> for Error {
-    fn from(_: tokio::sync::oneshot::error::RecvError) -> Self {
-        Error::OneShotRecv
-    }
-}
-
 impl From<tokio::timer::Error> for Error {
     fn from(_: tokio::timer::Error) -> Self {
         Error::TimerError
-    }
-}
-
-impl From<tokio_lock::Error> for Error {
-    fn from(err: tokio_lock::Error) -> Self {
-        Error::LockError(err.description().to_string())
     }
 }
 

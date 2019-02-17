@@ -1,21 +1,18 @@
 extern crate futures;
 extern crate hyper;
 extern crate tokio;
-extern crate tokio_lock;
 
 extern crate env_logger;
 
 use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use futures::future;
 use futures::prelude::*;
 use tokio::timer::Interval;
-use tokio_lock::Lock;
 
 use crate::config::Config;
 use crate::error::Error;
-use crate::message::common;
 use crate::node::Node;
 use crate::service::*;
 
@@ -35,40 +32,42 @@ impl Server {
         let builder = hyper::Server::bind(&bind_addr);
 
         let node = Node::new(bind_addr.clone(), self.config.clone());
-        let mut lock = Lock::new();
+        let node = Arc::new(Mutex::new(node));
 
-        let manage_lock = lock.manage(node).from_err::<Error>();
-
-        let http_lock = lock.clone();
+        let serve_node = node.clone();
         let server = builder
-            .serve(move || RPCService::new(http_lock.clone()))
+            .serve(move || RPCService::new(serve_node.clone()))
             .from_err();
 
-        let interval_lock = lock.clone();
+        let interval_node = node.clone();
         let interval = Interval::new(Instant::now(), self.config.ping_every)
             .from_err::<Error>()
             .for_each(move |_| {
-                let mut send_lock = interval_lock.clone();
-                let mut receive_lock = interval_lock.clone();
+                let ping_node = interval_node.clone();
 
-                send_lock
-                    .get_mut(|node| node.send_pings())
-                    .and_then(move |pings| {
-                        let pings: Vec<common::Ping> =
-                            pings.into_iter().filter_map(|ping| ping).collect();
-
-                        receive_lock.get_mut(move |node| {
-                            for ping in &pings {
-                                node.recv_ping(&ping).map(|_| ()).unwrap_or(());
-                            }
-                            future::ok(())
-                        })
+                interval_node
+                    .lock()
+                    .expect("lock to acquire")
+                    .send_pings()
+                    .and_then(|pings| {
+                        pings
+                            .into_iter()
+                            .filter_map(|ping| ping)
+                            .for_each(move |ping| {
+                                ping_node
+                                    .lock()
+                                    .expect("lock to acquire")
+                                    .recv_ping(&ping)
+                                    // Ignore errors
+                                    .map(|_| ())
+                                    .unwrap_or(());
+                            });
+                        Ok(())
                     })
             });
 
         hyper::rt::run(
             server
-                .join(manage_lock)
                 .join(interval)
                 .map_err(|err: Error| {
                     eprintln!("Got error: {:#?}", err);

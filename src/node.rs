@@ -18,7 +18,7 @@ use crate::message::{common, response};
 use crate::peer::Peer;
 
 type MaybePing = Option<common::Ping>;
-type FuturePings = Box<Future<Item = Vec<MaybePing>, Error = Error> + Send>;
+type FuturePingVec = Box<Future<Item = Vec<MaybePing>, Error = Error> + Send>;
 type FuturePing = Box<Future<Item = MaybePing, Error = Error> + Send>;
 
 pub struct Node {
@@ -57,7 +57,7 @@ impl Node {
         Ok(self.construct_ping())
     }
 
-    pub fn send_pings(&mut self) -> FuturePings {
+    pub fn send_pings(&mut self) -> FuturePingVec {
         let now = Instant::now();
 
         // Remove stale peers
