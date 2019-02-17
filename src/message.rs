@@ -33,12 +33,6 @@ pub mod response {
         pub peers: Vec<String>,
     }
 
-    #[derive(Debug)]
-    pub struct GetPingURIs {
-        pub peers: Vec<String>,
-        pub ping: common::Ping,
-    }
-
     #[derive(Serialize, Debug)]
     pub struct Error {
         pub error: crate::error::Error,

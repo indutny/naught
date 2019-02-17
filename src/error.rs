@@ -10,7 +10,6 @@ use serde::Serialize;
 
 #[derive(Serialize, Debug)]
 pub enum Error {
-    Node(crate::node::Error),
     AddrParse(String),
     Hyper(String),
     HyperHTTP(String),
@@ -34,7 +33,6 @@ impl StdError for Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::Node(err) => write!(f, "Node: {}", err.description()),
             Error::AddrParse(s) => write!(f, "AddrParse: {}", s),
             Error::Hyper(s) => write!(f, "Hyper: {}", s),
             Error::HyperHTTP(s) => write!(f, "Hyper HTTP: {}", s),
@@ -48,12 +46,6 @@ impl fmt::Display for Error {
             Error::Unreachable => write!(f, "Unreachable"),
             Error::JSON(s) => write!(f, "JSON Error: {}", s),
         }
-    }
-}
-
-impl From<crate::node::Error> for Error {
-    fn from(err: crate::node::Error) -> Self {
-        Error::Node(err)
     }
 }
 

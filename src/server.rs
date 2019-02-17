@@ -40,62 +40,37 @@ impl Server {
         let manage_lock = lock.manage(node).from_err::<Error>();
 
         let http_lock = lock.clone();
-        let server = builder.serve(move || RPCService::new(http_lock.clone()));
+        let server = builder
+            .serve(move || RPCService::new(http_lock.clone()))
+            .from_err();
 
-        /*
+        let interval_lock = lock.clone();
         let interval = Interval::new(Instant::now(), self.config.ping_every)
             .from_err::<Error>()
             .for_each(move |_| {
-                let (get_res_tx, get_res_rx) = oneshot::channel();
-                let (send_res_tx, send_res_rx) = oneshot::channel();
+                let mut send_lock = interval_lock.clone();
+                let mut receive_lock = interval_lock.clone();
 
-                let packet = RequestPacket {
-                    response_tx: get_res_tx,
-                    message: RequestMessage::GetPingURIs,
-                };
+                send_lock
+                    .get_mut(|node| node.send_pings())
+                    .and_then(move |pings| {
+                        let pings: Vec<common::Ping> =
+                            pings.into_iter().filter_map(|ping| ping).collect();
 
-                let ping_tx = poll_tx.clone();
-
-                poll_tx
-                        .clone()
-                        .send(packet)
-                        .from_err::<Error>()
-                        .and_then(move |_| get_res_rx.from_err())
-                        .and_then(
-                            |res_packet| -> Box<
-                                Future<Item = Vec<Option<common::Ping>>, Error = Error> + Send,
-                            > {
-                                trace!("got interval message {:?}", res_packet.message);
-
-                                let msg = match res_packet.message {
-                                    ResponseMessage::GetPingURIs(msg) => msg,
-                                    _ => {
-                                        return Box::new(future::err(Error::Unreachable));
-                                    }
-                                };
-
-                                Node::send_pings(msg.ping, msg.peers)
-                            },
-                        )
-                        .and_then(move |pings| {
-                            let pings = pings.into_iter().filter_map(|ping| ping).collect();
-
-                            ping_tx
-                                .send(RequestPacket {
-                                    response_tx: send_res_tx,
-                                    message: RequestMessage::RecvPingList(pings),
-                                })
-                                .from_err()
+                        receive_lock.get_mut(move |node| {
+                            // TODO(indutny): excessive cloning
+                            for ping in pings.clone() {
+                                node.recv_ping(ping).map(|_| ()).unwrap_or(());
+                            }
+                            future::ok(())
                         })
-                        .and_then(move |_| send_res_rx.from_err())
-                        .map(|_| ())
+                    })
             });
-        */
 
         hyper::rt::run(
             server
-                .from_err()
                 .join(manage_lock)
+                .join(interval)
                 .map_err(|err: Error| {
                     eprintln!("Got error: {:#?}", err);
                 })

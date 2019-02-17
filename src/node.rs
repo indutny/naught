@@ -5,11 +5,9 @@ extern crate serde_json;
 extern crate siphasher;
 
 use std::collections::HashMap;
-use std::error::Error as StdError;
-use std::fmt;
 use std::hash::Hasher;
 use std::net::SocketAddr;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use futures::future;
 use futures::prelude::*;
@@ -17,30 +15,13 @@ use serde::Serialize;
 use siphasher::sip::SipHasher;
 
 use crate::config::Config;
-use crate::error::Error as RPCError;
-use crate::message::{common, request, response};
+use crate::error::Error;
+use crate::message::{common, response};
 use crate::peer::Peer;
 
 type MaybePing = Option<common::Ping>;
-type FuturePings = Box<Future<Item = Vec<MaybePing>, Error = RPCError> + Send>;
-type FuturePing = Box<Future<Item = MaybePing, Error = RPCError> + Send>;
-
-#[derive(Serialize, Debug)]
-pub enum Error {
-    Every,
-}
-
-impl StdError for Error {
-    fn description(&self) -> &str {
-        "TODO(indutny): implement me"
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Naught Node Error: {}", self.description())
-    }
-}
+type FuturePings = Box<Future<Item = Vec<MaybePing>, Error = Error> + Send>;
+type FuturePing = Box<Future<Item = MaybePing, Error = Error> + Send>;
 
 pub struct Node {
     config: Config,
@@ -78,7 +59,7 @@ impl Node {
         Ok(self.construct_ping())
     }
 
-    pub fn get_ping_uris(&mut self) -> Result<response::GetPingURIs, Error> {
+    pub fn send_pings(&mut self) -> FuturePings {
         let now = Instant::now();
 
         // Remove stale peers
@@ -100,29 +81,22 @@ impl Node {
         }
 
         // Ping alive peers
-        Ok(response::GetPingURIs {
-            ping: self.construct_ping(),
-            peers: self
-                .peers
-                .values_mut()
-                .filter(|peer| peer.ping_at() <= now)
-                .map(|peer| peer.uri().to_string())
-                .collect(),
-        })
-    }
+        let uris: Vec<String> = self
+            .peers
+            .values_mut()
+            .filter(|peer| peer.ping_at() <= now)
+            .map(|peer| peer.uri().to_string())
+            .collect();
 
-    // Public API
-
-    pub fn send_pings(ping: common::Ping, uris: Vec<String>) -> FuturePings {
-        let json = match serde_json::to_string(&ping) {
+        let ping = match serde_json::to_string(&self.construct_ping()) {
             Ok(json) => json,
             Err(err) => {
-                return Box::new(future::err(RPCError::from(err)));
+                return Box::new(future::err(Error::from(err)));
             }
         };
 
         let pings = uris.into_iter().map(move |uri| {
-            Node::send_single_ping(json.to_string(), &uri).or_else(move |err| {
+            Node::send_single_ping(ping.to_string(), &uri).or_else(move |err| {
                 // Single failed ping should not prevent other pings
                 // from happening
                 error!("ping to {} failed due to error: {:#?}", uri, err);
@@ -153,7 +127,7 @@ impl Node {
         let request = match request {
             Ok(request) => request,
             Err(err) => {
-                return Box::new(future::err(RPCError::from(err)));
+                return Box::new(future::err(Error::from(err)));
             }
         };
 
@@ -162,12 +136,10 @@ impl Node {
         let f = client
             .request(request)
             .and_then(|res| res.into_body().concat2())
-            .from_err::<RPCError>()
-            .and_then(|chunk| {
-                serde_json::from_slice::<common::Ping>(&chunk).map_err(RPCError::from)
-            })
+            .from_err::<Error>()
+            .and_then(|chunk| serde_json::from_slice::<common::Ping>(&chunk).map_err(Error::from))
             .and_then(|ping| future::ok(Some(ping)))
-            .from_err::<RPCError>();
+            .from_err::<Error>();
 
         Box::new(f)
     }
@@ -176,6 +148,8 @@ impl Node {
         if sender == self.uri {
             return;
         }
+
+        trace!("received ping from: {}", sender);
 
         self.add_peer(&sender);
         for peer_uri in peers {
