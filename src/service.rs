@@ -48,14 +48,15 @@ impl hyper::service::Service for RPCService {
         res.header("content-type", "application/json");
 
         // TODO(indutny): authorization
-        let body: Box<Future<Item = Body, Error = Error> + Send> =
+        let body: Box<Future<Item = (StatusCode, Body), Error = Error> + Send> =
             match (req.method(), req.uri().path()) {
                 (&Method::GET, "/_info") => Box::new(future::result(
                     self.node
                         .lock()
                         .expect("lock to acquire")
                         .recv_info()
-                        .and_then(|info| RPCService::to_json_body(&info)),
+                        .and_then(|info| RPCService::to_json_body(&info))
+                        .map(|body| (StatusCode::OK, body)),
                 )),
                 (&Method::PUT, "/_ping") => {
                     let node = self.node.clone();
@@ -64,27 +65,26 @@ impl hyper::service::Service for RPCService {
                             .and_then(move |ping| {
                                 node.lock().expect("lock to acquire").recv_ping(&ping)
                             })
-                            .and_then(|res| RPCService::to_json_body(&res)),
+                            .and_then(|res| RPCService::to_json_body(&res))
+                            .map(|body| (StatusCode::OK, body)),
                     )
                 }
-                _ => {
-                    res.status(StatusCode::NOT_FOUND);
-                    let result = res.body(Body::from("{\"error\":\"Not found\"}"));
-                    return Box::new(result.into_future().from_err());
-                }
+                _ => Box::new(future::ok((
+                    StatusCode::NOT_FOUND,
+                    Body::from("{\"error\":\"Not found\"}"),
+                ))),
             };
 
         Box::new(
-            body.map(|body| (StatusCode::OK, body))
-                .or_else(|err| {
-                    let json = serde_json::to_string(&response::Error { error: err })
-                        .unwrap_or("{\"error\":\"unknown error\"}".to_string());
-                    Ok((StatusCode::INTERNAL_SERVER_ERROR, Body::from(json)))
-                })
-                .and_then(move |(status, body)| {
-                    res.status(status);
-                    res.body(body).into_future().from_err()
-                }),
+            body.or_else(|err| {
+                let json = serde_json::to_string(&response::Error { error: err })
+                    .unwrap_or("{\"error\":\"unknown error\"}".to_string());
+                Ok((StatusCode::INTERNAL_SERVER_ERROR, Body::from(json)))
+            })
+            .and_then(move |(status, body)| {
+                res.status(status);
+                res.body(body).into_future().from_err()
+            }),
         )
     }
 }
