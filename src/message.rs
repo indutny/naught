@@ -12,6 +12,7 @@ pub mod rpc {
         Info(response::Info),
         RecvPing(response::Ping),
         GetPingURIs(response::GetPingURIs),
+        RecvPingList,
     }
 
     #[derive(Debug)]
@@ -29,6 +30,7 @@ pub mod rpc {
         Info,
         RecvPing(request::Ping),
         GetPingURIs,
+        RecvPingList(Vec<request::Ping>),
     }
 
     #[derive(Debug)]

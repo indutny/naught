@@ -14,6 +14,7 @@ use tokio::timer::Interval;
 
 use crate::config::Config;
 use crate::error::Error;
+use crate::message::common;
 use crate::message::rpc::{RequestMessage, RequestPacket, ResponseMessage};
 use crate::node::Node;
 use crate::service::*;
@@ -42,34 +43,49 @@ impl Server {
         let interval = Interval::new(Instant::now(), self.config.ping_every)
             .from_err::<Error>()
             .for_each(move |_| {
-                let (response_tx, response_rx) = oneshot::channel();
+                let (get_res_tx, get_res_rx) = oneshot::channel();
+                let (send_res_tx, send_res_rx) = oneshot::channel();
 
                 let packet = RequestPacket {
-                    response_tx,
+                    response_tx: get_res_tx,
                     message: RequestMessage::GetPingURIs,
                 };
 
-                poll_tx
-                    .clone()
-                    .send(packet)
-                    .from_err::<Error>()
-                    .and_then(move |_| response_rx.from_err())
-                    .and_then(
-                        |res_packet| -> Box<Future<Item = (), Error = Error> + Send> {
-                            let msg = match res_packet.message {
-                                ResponseMessage::GetPingURIs(msg) => msg,
-                                _ => {
-                                    return Box::new(future::err(Error::Unreachable));
-                                }
-                            };
+                let ping_tx = poll_tx.clone();
 
-                            Box::new(Node::send_ping(msg.ping, msg.peers).from_err())
-                        },
-                    )
-                    .or_else(|err| {
-                        eprintln!("Got interval error: {:#?}", err);
-                        future::ok(())
-                    })
+                poll_tx
+                        .clone()
+                        .send(packet)
+                        .from_err::<Error>()
+                        .and_then(move |_| get_res_rx.from_err())
+                        .and_then(
+                            |res_packet| -> Box<
+                                Future<Item = Vec<Option<common::Ping>>, Error = Error> + Send,
+                            > {
+                                trace!("got interval message {:?}", res_packet.message);
+
+                                let msg = match res_packet.message {
+                                    ResponseMessage::GetPingURIs(msg) => msg,
+                                    _ => {
+                                        return Box::new(future::err(Error::Unreachable));
+                                    }
+                                };
+
+                                Node::send_pings(msg.ping, msg.peers)
+                            },
+                        )
+                        .and_then(move |pings| {
+                            let pings = pings.into_iter().filter_map(|ping| ping).collect();
+
+                            ping_tx
+                                .send(RequestPacket {
+                                    response_tx: send_res_tx,
+                                    message: RequestMessage::RecvPingList(pings),
+                                })
+                                .from_err()
+                        })
+                        .and_then(move |_| send_res_rx.from_err())
+                        .map(|_| ())
             });
 
         let rpc = RPCService::run_rpc(request_rx, node);
@@ -79,10 +95,10 @@ impl Server {
                 .from_err()
                 .join(rpc)
                 .join(interval)
-                .map(|_| ())
                 .map_err(|err: Error| {
                     eprintln!("Got error: {:#?}", err);
-                }),
+                })
+                .map(|_| ()),
         );
 
         Ok(())

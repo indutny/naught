@@ -21,7 +21,9 @@ use crate::error::Error as RPCError;
 use crate::message::{common, request, response};
 use crate::peer::Peer;
 
-type FutureBox = Box<Future<Item = (), Error = RPCError> + Send>;
+type MaybePing = Option<common::Ping>;
+type FuturePings = Box<Future<Item = Vec<MaybePing>, Error = RPCError> + Send>;
+type FuturePing = Box<Future<Item = MaybePing, Error = RPCError> + Send>;
 
 #[derive(Serialize, Debug)]
 pub enum Error {
@@ -100,22 +102,34 @@ impl Node {
         // Ping alive peers
         Ok(response::GetPingURIs {
             ping: self.construct_ping(),
-            peers: self.get_peer_uris(),
+            peers: self
+                .peers
+                .values_mut()
+                .filter(|peer| peer.ping_at() <= now)
+                .map(|peer| peer.uri().to_string())
+                .collect(),
         })
     }
 
     // Public API
 
-    pub fn send_ping(ping: common::Ping, uris: Vec<String>) -> FutureBox {
-        let acc: FutureBox = Box::new(future::ok(()));
-        let join = uris
-            .into_iter()
-            .zip(std::iter::repeat(&ping))
-            .map(|(uri, ping)| -> FutureBox { Node::send_single_ping(ping, uri) })
-            .fold(acc, |acc: FutureBox, f: FutureBox| {
-                Box::new(acc.join(f).map(|_| ()))
-            });
-        Box::new(join)
+    pub fn send_pings(ping: common::Ping, uris: Vec<String>) -> FuturePings {
+        let json = match serde_json::to_string(&ping) {
+            Ok(json) => json,
+            Err(err) => {
+                return Box::new(future::err(RPCError::from(err)));
+            }
+        };
+
+        let pings = uris.into_iter().map(move |uri| {
+            Node::send_single_ping(json.to_string(), &uri).or_else(move |err| {
+                // Single failed ping should not prevent other pings
+                // from happening
+                error!("ping to {} failed due to error: {:#?}", uri, err);
+                future::ok(None)
+            })
+        });
+        Box::new(future::join_all(pings))
     }
 
     // Internal methods
@@ -127,31 +141,19 @@ impl Node {
         }
     }
 
-    fn send_single_ping(ping: &common::Ping, uri: String) -> FutureBox {
+    fn send_single_ping(ping: String, uri: &str) -> FuturePing {
         let uri = format!("{}/_ping", uri);
-
-        let json = match serde_json::to_string(ping) {
-            Ok(json) => json,
-            Err(err) => {
-                return Box::new(future::err(RPCError::from(err)));
-            }
-        };
 
         let request = hyper::Request::builder()
             .method("PUT")
-            .uri(uri.clone())
+            .uri(uri)
             .header("content-type", "application/json")
-            .body(hyper::Body::from(json));
+            .body(hyper::Body::from(ping));
 
         let request = match request {
             Ok(request) => request,
             Err(err) => {
-                error!(
-                    "ping to {} failed due to error: {:#?}",
-                    uri,
-                    RPCError::from(err)
-                );
-                return Box::new(future::ok(()));
+                return Box::new(future::err(RPCError::from(err)));
             }
         };
 
@@ -164,17 +166,8 @@ impl Node {
             .and_then(|chunk| {
                 serde_json::from_slice::<common::Ping>(&chunk).map_err(RPCError::from)
             })
-            .and_then(|ping| {
-                // TODO(indutny): return ping
-                future::ok(())
-            })
-            .from_err::<RPCError>()
-            .or_else(move |err| {
-                // Single failed ping should not prevent other pings
-                // from happening
-                error!("ping to {} failed due to error: {:#?}", uri, err);
-                future::ok(())
-            });
+            .and_then(|ping| future::ok(Some(ping)))
+            .from_err::<RPCError>();
 
         Box::new(f)
     }

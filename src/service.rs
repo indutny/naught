@@ -30,16 +30,22 @@ impl RPCService {
         request_rx
             .from_err::<RPCError>()
             .for_each(move |packet| {
-                trace!("RPC request {:?}", packet);
+                trace!("RPC message={:?}", packet.message);
 
                 let response_tx = packet.response_tx;
                 let maybe_res_msg = match packet.message {
-                    RequestMessage::GetPingURIs => {
-                        node.get_ping_uris().map(ResponseMessage::GetPingURIs)
-                    }
                     RequestMessage::Info => node.recv_info().map(ResponseMessage::Info),
                     RequestMessage::RecvPing(body) => {
                         node.recv_ping(body).map(ResponseMessage::RecvPing)
+                    }
+                    RequestMessage::GetPingURIs => {
+                        node.get_ping_uris().map(ResponseMessage::GetPingURIs)
+                    }
+                    RequestMessage::RecvPingList(list) => {
+                        list.into_iter().for_each(|ping| {
+                            node.recv_ping(ping).map(|_| ()).unwrap_or(());
+                        });
+                        Ok(ResponseMessage::RecvPingList)
                     }
                 };
 
@@ -115,7 +121,7 @@ impl hyper::service::Service for RPCService {
                 let json = match res_packet.message {
                     ResponseMessage::Info(info) => serde_json::to_string(&info),
                     ResponseMessage::RecvPing(ping) => serde_json::to_string(&ping),
-                    ResponseMessage::GetPingURIs(_) => {
+                    _ => {
                         return Err(RPCError::Unreachable);
                     }
                 };
