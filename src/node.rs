@@ -59,11 +59,38 @@ impl Node {
         Ok(self.construct_ping())
     }
 
+    pub fn peek(&self, resource: &str) -> Result<(), Error> {
+        if self.data.contains_key(resource) {
+            trace!("peek existing resource: {}", resource);
+            Ok(())
+        } else {
+            trace!("peek missing resource: {}", resource);
+            Err(Error::NotFound)
+        }
+    }
+
     pub fn fetch(&self, resource: &str, redirect: bool) -> Result<hyper::Body, Error> {
         match self.data.get(resource) {
-            Some(value) => Ok(hyper::Body::from(value.clone())),
-            None => Err(Error::NotFound),
+            Some(value) => {
+                trace!("fetch existing resource: {}", resource);
+                Ok(hyper::Body::from(value.clone()))
+            }
+            None => {
+                trace!("fetch missing resource: {}", resource);
+                Err(Error::NotFound)
+            }
         }
+    }
+
+    pub fn store(&mut self, resource: String, value: Vec<u8>) -> Result<response::Empty, Error> {
+        if self.data.contains_key(&resource) {
+            trace!("duplicate resource: {}", resource);
+            return Ok(response::Empty {});
+        }
+
+        trace!("new resource: {}", resource);
+        self.data.insert(resource, value);
+        Ok(response::Empty {})
     }
 
     pub fn send_pings(&mut self) -> FuturePingVec {

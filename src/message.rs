@@ -37,4 +37,7 @@ pub mod response {
     pub struct Error {
         pub error: crate::error::Error,
     }
+
+    #[derive(Serialize, Debug)]
+    pub struct Empty {}
 }

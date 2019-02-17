@@ -23,11 +23,16 @@ impl RPCService {
         RPCService { node }
     }
 
-    fn fetch_json<T: DeserializeOwned>(req: Request<Body>) -> impl Future<Item = T, Error = Error> {
-        req.into_body()
-            .concat2()
+    fn fetch_json<T: DeserializeOwned>(body: Body) -> impl Future<Item = T, Error = Error> {
+        body.concat2()
             .from_err::<Error>()
             .and_then(|chunk| serde_json::from_slice::<T>(&chunk).map_err(Error::from))
+    }
+
+    fn fetch_raw(body: Body) -> impl Future<Item = Vec<u8>, Error = Error> {
+        body.concat2()
+            .from_err::<Error>()
+            .map(|chunk| chunk.to_vec())
     }
 
     fn to_json_body<T: Serialize>(value: &T) -> Result<Body, Error> {
@@ -52,25 +57,24 @@ impl hyper::service::Service for RPCService {
     fn call(&mut self, req: Request<Body>) -> Self::Future {
         let mut res = Response::builder();
 
+        let (parts, body) = req.into_parts();
+
         // TODO(indutny): authorization
         let resource: Box<Future<Item = Resource, Error = Error> + Send> =
-            match (req.method(), req.uri().path()) {
-                (&Method::GET, "/_info") => Box::new(future::result(
-                    self.node
-                        .lock()
-                        .expect("lock to acquire")
-                        .recv_info()
+            match (parts.method, parts.uri.path()) {
+                (Method::GET, "/_info") => Box::new(
+                    future::result(self.node.lock().expect("lock to acquire").recv_info())
                         .and_then(|info| RPCService::to_json_body(&info))
                         .map(|body| Resource {
                             status: StatusCode::OK,
                             body,
                             raw: false,
                         }),
-                )),
-                (&Method::PUT, "/_ping") => {
+                ),
+                (Method::PUT, "/_ping") => {
                     let node = self.node.clone();
                     Box::new(
-                        RPCService::fetch_json(req)
+                        RPCService::fetch_json(body)
                             .and_then(move |ping| {
                                 node.lock().expect("lock to acquire").recv_ping(&ping)
                             })
@@ -82,7 +86,21 @@ impl hyper::service::Service for RPCService {
                             }),
                     )
                 }
-                (&Method::GET, resource) => Box::new(
+                (Method::HEAD, resource) => Box::new(
+                    future::result(
+                        self.node
+                            .lock()
+                            .expect("lock to acquire")
+                            .peek(&resource[1..]),
+                    )
+                    .and_then(|res| RPCService::to_json_body(&res))
+                    .map(|body| Resource {
+                        status: StatusCode::OK,
+                        body,
+                        raw: false,
+                    }),
+                ),
+                (Method::GET, resource) => Box::new(
                     future::result(
                         self.node
                             .lock()
@@ -95,6 +113,22 @@ impl hyper::service::Service for RPCService {
                         raw: true,
                     }),
                 ),
+                (Method::PUT, resource) => {
+                    let node = self.node.clone();
+                    let resource = resource[1..].to_string();
+                    Box::new(
+                        RPCService::fetch_raw(body)
+                            .and_then(move |value| {
+                                node.lock().expect("lock to acquire").store(resource, value)
+                            })
+                            .and_then(|res| RPCService::to_json_body(&res))
+                            .map(|body| Resource {
+                                status: StatusCode::OK,
+                                body,
+                                raw: true,
+                            }),
+                    )
+                }
                 _ => Box::new(future::err(Error::BadRequest)),
             };
 
