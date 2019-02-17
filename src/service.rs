@@ -75,13 +75,16 @@ impl hyper::service::Service for RPCService {
             };
 
         Box::new(
-            body.or_else(|err| {
-                // TODO(indutny): 500 Status Code
-                let json = serde_json::to_string(&response::Error { error: err })
-                    .unwrap_or("{\"error\":\"unknown error\"}".to_string());
-                Ok(Body::from(json))
-            })
-            .and_then(move |body| res.body(body).into_future().from_err()),
+            body.map(|body| (StatusCode::OK, body))
+                .or_else(|err| {
+                    let json = serde_json::to_string(&response::Error { error: err })
+                        .unwrap_or("{\"error\":\"unknown error\"}".to_string());
+                    Ok((StatusCode::INTERNAL_SERVER_ERROR, Body::from(json)))
+                })
+                .and_then(move |(status, body)| {
+                    res.status(status);
+                    res.body(body).into_future().from_err()
+                }),
         )
     }
 }
