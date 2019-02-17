@@ -1,6 +1,7 @@
 extern crate futures;
 extern crate hyper;
 extern crate tokio;
+extern crate tokio_lock;
 
 extern crate env_logger;
 
@@ -9,13 +10,12 @@ use std::time::Instant;
 
 use futures::future;
 use futures::prelude::*;
-use tokio::sync::{mpsc, oneshot};
 use tokio::timer::Interval;
+use tokio_lock::Lock;
 
 use crate::config::Config;
 use crate::error::Error;
 use crate::message::common;
-use crate::message::rpc::{RequestMessage, RequestPacket, ResponseMessage};
 use crate::node::Node;
 use crate::service::*;
 
@@ -34,12 +34,15 @@ impl Server {
 
         let builder = hyper::Server::bind(&bind_addr);
 
-        let (request_tx, request_rx) = mpsc::unbounded_channel();
-        let poll_tx = request_tx.clone();
-        let server = builder.serve(move || RPCService::new(request_tx.clone()));
+        let node = Node::new(bind_addr.clone(), self.config.clone());
+        let mut lock = Lock::new();
 
-        let node = Node::new(server.local_addr(), self.config.clone());
+        let manage_lock = lock.manage(node).from_err::<Error>();
 
+        let http_lock = lock.clone();
+        let server = builder.serve(move || RPCService::new(http_lock.clone()));
+
+        /*
         let interval = Interval::new(Instant::now(), self.config.ping_every)
             .from_err::<Error>()
             .for_each(move |_| {
@@ -87,14 +90,12 @@ impl Server {
                         .and_then(move |_| send_res_rx.from_err())
                         .map(|_| ())
             });
-
-        let rpc = RPCService::run_rpc(request_rx, node);
+        */
 
         hyper::rt::run(
             server
                 .from_err()
-                .join(rpc)
-                .join(interval)
+                .join(manage_lock)
                 .map_err(|err: Error| {
                     eprintln!("Got error: {:#?}", err);
                 })

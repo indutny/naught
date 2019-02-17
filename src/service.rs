@@ -1,70 +1,26 @@
 extern crate futures;
 extern crate serde_json;
-extern crate tokio;
+extern crate tokio_lock;
 
 use futures::future::{self, FutureResult};
 use futures::prelude::*;
 use futures::IntoFuture;
 use hyper::{Body, Method, Request, Response, StatusCode};
 use serde::de::DeserializeOwned;
-use tokio::sync::{mpsc, oneshot};
+use serde::Serialize;
+use tokio_lock::Lock;
 
 use crate::error::Error as RPCError;
-use crate::message::rpc::*;
 use crate::message::{request, response};
 use crate::node::Node;
 
 pub struct RPCService {
-    request_tx: mpsc::UnboundedSender<RequestPacket>,
+    node: Lock<Node, RPCError>,
 }
 
 impl RPCService {
-    pub fn new(request_tx: mpsc::UnboundedSender<RequestPacket>) -> RPCService {
-        RPCService { request_tx }
-    }
-
-    pub fn run_rpc(
-        request_rx: mpsc::UnboundedReceiver<RequestPacket>,
-        mut node: Node,
-    ) -> impl Future<Item = (), Error = RPCError> {
-        request_rx
-            .from_err::<RPCError>()
-            .for_each(move |packet| {
-                trace!("RPC message={:?}", packet.message);
-
-                let response_tx = packet.response_tx;
-                let maybe_res_msg = match packet.message {
-                    RequestMessage::Info => node.recv_info().map(ResponseMessage::Info),
-                    RequestMessage::RecvPing(body) => {
-                        node.recv_ping(body).map(ResponseMessage::RecvPing)
-                    }
-                    RequestMessage::GetPingURIs => {
-                        node.get_ping_uris().map(ResponseMessage::GetPingURIs)
-                    }
-                    RequestMessage::RecvPingList(list) => {
-                        list.into_iter().for_each(|ping| {
-                            node.recv_ping(ping).map(|_| ()).unwrap_or(());
-                        });
-                        Ok(ResponseMessage::RecvPingList)
-                    }
-                };
-
-                let res_msg = match maybe_res_msg {
-                    Err(err) => {
-                        return future::err(RPCError::from(err));
-                    }
-                    Ok(res_msg) => res_msg,
-                };
-
-                let res_packet = ResponsePacket { message: res_msg };
-
-                if response_tx.send(res_packet).is_err() {
-                    future::err(RPCError::OneShotSend)
-                } else {
-                    future::ok(())
-                }
-            })
-            .from_err()
+    pub fn new(node: Lock<Node, RPCError>) -> RPCService {
+        RPCService { node }
     }
 
     fn fetch_json<T: DeserializeOwned>(
@@ -74,6 +30,12 @@ impl RPCService {
             .concat2()
             .from_err::<RPCError>()
             .and_then(|chunk| serde_json::from_slice::<T>(&chunk).map_err(RPCError::from))
+    }
+
+    fn to_json_body<T: Serialize>(value: &T) -> Result<Body, RPCError> {
+        serde_json::to_string(value)
+            .map(Body::from)
+            .map_err(|err| RPCError::from(err))
     }
 }
 
@@ -87,63 +49,45 @@ impl hyper::service::Service for RPCService {
         let mut res = Response::builder();
         res.header("content-type", "application/json");
 
-        let (response_tx, response_rx) = oneshot::channel();
-
         // TODO(indutny): authorization
-        let req_message: Box<Future<Item = RequestMessage, Error = RPCError> + Send> =
+        let body: Box<Future<Item = Body, Error = RPCError> + Send> =
             match (req.method(), req.uri().path()) {
-                (&Method::GET, "/_info") => Box::new(future::ok(RequestMessage::Info)),
+                (&Method::GET, "/_info") => Box::new(
+                    self.node
+                        .get(|node| future::result(node.recv_info()).from_err())
+                        .and_then(|res| RPCService::to_json_body(&res)),
+                ),
                 (&Method::PUT, "/_ping") => {
-                    Box::new(RPCService::fetch_json(req).map(RequestMessage::RecvPing))
+                    // TODO(indutny): so many clones
+                    let mut node = self.node.clone();
+
+                    Box::new(
+                        RPCService::fetch_json(req)
+                            .and_then(move |ping: request::Ping| {
+                                node.get_mut(move |node| {
+                                    // TODO(indutny): so many clones
+                                    future::result(node.recv_ping(ping.clone())).from_err()
+                                })
+                            })
+                            .and_then(|res| RPCService::to_json_body(&res)),
+                    )
                 }
                 _ => {
                     res.status(StatusCode::NOT_FOUND);
-                    let body = Body::from("{\"error\":\"Not found\"}");
-                    return Box::new(res.body(body).into_future().from_err());
+                    let result = res.body(Body::from("{\"error\":\"Not found\"}"));
+                    return Box::new(result.into_future().from_err());
                 }
             };
 
-        let request_tx = self.request_tx.clone();
-
-        let handle_request = req_message
-            .and_then(move |req_message| {
-                request_tx
-                    .send(RequestPacket {
-                        response_tx,
-                        message: req_message,
-                    })
-                    .from_err()
+        Box::new(
+            body.or_else(|err| {
+                // TODO(indutny): 500 Status Code
+                let json = serde_json::to_string(&response::Error { error: err })
+                    .unwrap_or("{\"error\":\"unknown error\"}".to_string());
+                Ok(Body::from(json))
             })
-            .and_then(|_| response_rx.from_err())
-            .and_then(|res_packet| {
-                trace!("RPC response message={:?}", res_packet.message);
-
-                let json = match res_packet.message {
-                    ResponseMessage::Info(info) => serde_json::to_string(&info),
-                    ResponseMessage::RecvPing(ping) => serde_json::to_string(&ping),
-                    _ => {
-                        return Err(RPCError::Unreachable);
-                    }
-                };
-
-                json.map(Body::from).map_err(RPCError::from)
-            })
-            .then(move |result| {
-                match result {
-                    Ok(body) => res.body(body),
-                    Err(err) => {
-                        let maybe_json = serde_json::to_string(&ResponseError { error: err });
-                        match maybe_json {
-                            Ok(json) => res.body(Body::from(json)),
-                            Err(_) => res.body(Body::from("{\"error\":\"unknown error\"}")),
-                        }
-                    }
-                }
-                .into_future()
-                .from_err()
-            });
-
-        Box::new(handle_request)
+            .and_then(move |body| res.body(body).into_future().from_err()),
+        )
     }
 }
 
