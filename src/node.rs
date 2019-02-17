@@ -25,6 +25,7 @@ pub struct Node {
     config: Config,
     uri: String,
     peers: HashMap<String, Peer>,
+    data: HashMap<String, Vec<u8>>,
 }
 
 impl Node {
@@ -35,6 +36,7 @@ impl Node {
             config,
             uri,
             peers: HashMap::new(),
+            data: HashMap::new(),
         }
     }
 
@@ -55,6 +57,13 @@ impl Node {
         self.on_ping(&msg.sender, &msg.peers);
 
         Ok(self.construct_ping())
+    }
+
+    pub fn fetch(&self, resource: &str, redirect: bool) -> Result<hyper::Body, Error> {
+        match self.data.get(resource) {
+            Some(value) => Ok(hyper::Body::from(value.clone())),
+            None => Err(Error::NotFound),
+        }
     }
 
     pub fn send_pings(&mut self) -> FuturePingVec {

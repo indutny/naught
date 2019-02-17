@@ -37,6 +37,12 @@ impl RPCService {
     }
 }
 
+struct Resource {
+    status: StatusCode,
+    body: Body,
+    raw: bool,
+}
+
 impl hyper::service::Service for RPCService {
     type ReqBody = Body;
     type ResBody = Body;
@@ -45,10 +51,9 @@ impl hyper::service::Service for RPCService {
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
         let mut res = Response::builder();
-        res.header("content-type", "application/json");
 
         // TODO(indutny): authorization
-        let body: Box<Future<Item = (StatusCode, Body), Error = Error> + Send> =
+        let resource: Box<Future<Item = Resource, Error = Error> + Send> =
             match (req.method(), req.uri().path()) {
                 (&Method::GET, "/_info") => Box::new(future::result(
                     self.node
@@ -56,7 +61,11 @@ impl hyper::service::Service for RPCService {
                         .expect("lock to acquire")
                         .recv_info()
                         .and_then(|info| RPCService::to_json_body(&info))
-                        .map(|body| (StatusCode::OK, body)),
+                        .map(|body| Resource {
+                            status: StatusCode::OK,
+                            body,
+                            raw: false,
+                        }),
                 )),
                 (&Method::PUT, "/_ping") => {
                     let node = self.node.clone();
@@ -66,25 +75,52 @@ impl hyper::service::Service for RPCService {
                                 node.lock().expect("lock to acquire").recv_ping(&ping)
                             })
                             .and_then(|res| RPCService::to_json_body(&res))
-                            .map(|body| (StatusCode::OK, body)),
+                            .map(|body| Resource {
+                                status: StatusCode::OK,
+                                body,
+                                raw: false,
+                            }),
                     )
                 }
-                _ => Box::new(future::ok((
-                    StatusCode::NOT_FOUND,
-                    Body::from("{\"error\":\"Not found\"}"),
-                ))),
+                (&Method::GET, resource) => Box::new(
+                    future::result(
+                        self.node
+                            .lock()
+                            .expect("lock to acquire")
+                            .fetch(&resource[1..], false),
+                    )
+                    .map(|body| Resource {
+                        status: StatusCode::OK,
+                        body,
+                        raw: true,
+                    }),
+                ),
+                _ => Box::new(future::err(Error::BadRequest)),
             };
 
         Box::new(
-            body.or_else(|err| {
-                let json = serde_json::to_string(&response::Error { error: err })
-                    .unwrap_or("{\"error\":\"unknown error\"}".to_string());
-                Ok((StatusCode::INTERNAL_SERVER_ERROR, Body::from(json)))
-            })
-            .and_then(move |(status, body)| {
-                res.status(status);
-                res.body(body).into_future().from_err()
-            }),
+            resource
+                .or_else(|err| {
+                    let status = match err {
+                        Error::NotFound => StatusCode::NOT_FOUND,
+                        Error::BadRequest => StatusCode::BAD_REQUEST,
+                        _ => StatusCode::INTERNAL_SERVER_ERROR,
+                    };
+                    let json = serde_json::to_string(&response::Error { error: err })
+                        .unwrap_or("{\"error\":\"unknown error\"}".to_string());
+                    Ok(Resource {
+                        status,
+                        body: Body::from(json),
+                        raw: false,
+                    })
+                })
+                .and_then(move |resource| {
+                    res.status(resource.status);
+                    if !resource.raw {
+                        res.header("content-type", "application/json");
+                    }
+                    res.body(resource.body).into_future().from_err()
+                }),
         )
     }
 }

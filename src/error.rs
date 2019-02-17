@@ -13,6 +13,8 @@ pub enum Error {
     Hyper(String),
     HyperHTTP(String),
     TimerError,
+    NotFound,
+    BadRequest,
     Unreachable,
     JSON(String),
 }
@@ -31,6 +33,8 @@ impl fmt::Display for Error {
             Error::HyperHTTP(s) => write!(f, "Hyper HTTP: {}", s),
             Error::TimerError => write!(f, "TimerError"),
             Error::Unreachable => write!(f, "Unreachable"),
+            Error::NotFound => write!(f, "Resource not found"),
+            Error::BadRequest => write!(f, "Unsupported request method or uri"),
             Error::JSON(s) => write!(f, "JSON Error: {}", s),
         }
     }
