@@ -65,8 +65,7 @@ impl hyper::service::Service for RPCService {
                         RPCService::fetch_json(req)
                             .and_then(move |ping: request::Ping| {
                                 node.get_mut(move |node| {
-                                    // TODO(indutny): so many clones
-                                    future::result(node.recv_ping(ping.clone())).from_err()
+                                    future::result(node.recv_ping(&ping)).from_err()
                                 })
                             })
                             .and_then(|res| RPCService::to_json_body(&res)),

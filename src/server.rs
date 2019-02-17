@@ -58,9 +58,8 @@ impl Server {
                             pings.into_iter().filter_map(|ping| ping).collect();
 
                         receive_lock.get_mut(move |node| {
-                            // TODO(indutny): excessive cloning
-                            for ping in pings.clone() {
-                                node.recv_ping(ping).map(|_| ()).unwrap_or(());
+                            for ping in &pings {
+                                node.recv_ping(&ping).map(|_| ()).unwrap_or(());
                             }
                             future::ok(())
                         })

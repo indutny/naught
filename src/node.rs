@@ -1,6 +1,5 @@
 extern crate futures;
 extern crate hyper;
-extern crate serde;
 extern crate serde_json;
 extern crate siphasher;
 
@@ -11,7 +10,6 @@ use std::time::Instant;
 
 use futures::future;
 use futures::prelude::*;
-use serde::Serialize;
 use siphasher::sip::SipHasher;
 
 use crate::config::Config;
@@ -53,8 +51,8 @@ impl Node {
         })
     }
 
-    pub fn recv_ping(&mut self, msg: common::Ping) -> Result<common::Ping, Error> {
-        self.on_ping(&msg.sender, msg.peers);
+    pub fn recv_ping(&mut self, msg: &common::Ping) -> Result<common::Ping, Error> {
+        self.on_ping(&msg.sender, &msg.peers);
 
         Ok(self.construct_ping())
     }
@@ -144,7 +142,7 @@ impl Node {
         Box::new(f)
     }
 
-    fn on_ping(&mut self, sender: &str, peers: Vec<String>) {
+    fn on_ping(&mut self, sender: &str, peers: &Vec<String>) {
         if sender == self.uri {
             return;
         }
