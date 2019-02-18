@@ -85,7 +85,7 @@ impl Resource {
                 .request(request)
                 .from_err::<Error>()
                 .and_then(|response| {
-                    if response.status() == hyper::StatusCode::OK {
+                    if response.status().is_success() {
                         Ok(response)
                     } else {
                         Err(Error::NotFound)
@@ -141,7 +141,7 @@ impl Resource {
                 .request(peek)
                 .from_err::<Error>()
                 .and_then(|response| {
-                    if response.status() == hyper::StatusCode::OK {
+                    if response.status().is_success() {
                         Ok(())
                     } else {
                         Err(Error::NotFound)
@@ -152,7 +152,7 @@ impl Resource {
                         .request(store)
                         .from_err::<Error>()
                         .and_then(|response| {
-                            if response.status() == hyper::StatusCode::CREATED {
+                            if response.status().is_success() {
                                 Ok(())
                             } else {
                                 Err(Error::StoreFailed)

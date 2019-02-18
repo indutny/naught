@@ -301,7 +301,7 @@ impl Node {
             .request(request)
             .from_err::<Error>()
             .and_then(|response| -> FutureChunk {
-                if response.status() == hyper::StatusCode::OK {
+                if response.status().is_success() {
                     Box::new(response.into_body().concat2().from_err())
                 } else {
                     Box::new(future::err(Error::PingFailed))
