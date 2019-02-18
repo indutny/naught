@@ -39,5 +39,7 @@ pub mod response {
     }
 
     #[derive(Serialize, Debug)]
-    pub struct Empty {}
+    pub struct Ok {
+        pub ok: bool,
+    }
 }

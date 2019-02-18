@@ -105,10 +105,10 @@ impl Node {
         uri: String,
         value: Vec<u8>,
         redirect: bool,
-    ) -> Box<Future<Item = response::Empty, Error = Error> + Send> {
+    ) -> Box<Future<Item = response::Ok, Error = Error> + Send> {
         if self.data.contains_key(&uri) {
             trace!("duplicate resource: {}", uri);
-            return Box::new(future::ok(response::Empty {}));
+            return Box::new(future::ok(response::Ok { ok: true }));
         }
 
         trace!("new resource: {}", uri);
@@ -133,7 +133,7 @@ impl Node {
 
         self.data.insert(uri, value);
 
-        Box::new(future::join_all(remote).and_then(|_| future::ok(response::Empty {})))
+        Box::new(future::join_all(remote).and_then(|_| future::ok(response::Ok { ok: true })))
     }
 
     pub fn send_pings(&mut self) -> FuturePingVec {
