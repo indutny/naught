@@ -4,6 +4,7 @@ extern crate serde_json;
 extern crate tokio;
 
 use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 use std::net::SocketAddr;
 use std::time::Instant;
 
@@ -20,16 +21,21 @@ type MaybePing = Option<common::Ping>;
 type FuturePingVec = Box<Future<Item = Vec<MaybePing>, Error = Error> + Send>;
 type FuturePing = Box<Future<Item = MaybePing, Error = Error> + Send>;
 type FutureBody = Box<Future<Item = hyper::Body, Error = Error> + Send>;
+type FutureURI = Box<Future<Item = Option<String>, Error = Error> + Send>;
 type FutureEmpty = Box<Future<Item = (), Error = Error> + Send>;
 type FutureChunk = Box<Future<Item = hyper::Chunk, Error = Error> + Send>;
 type FutureKeyVec = Box<Future<Item = Vec<String>, Error = Error> + Send>;
+
+struct DataEntry {
+    value: Vec<u8>,
+}
 
 pub struct Node {
     config: Config,
     uri: String,
     peers: HashMap<String, Peer>,
     last_peer_uris: HashSet<String>,
-    data: HashMap<String, Vec<u8>>,
+    data: HashMap<String, DataEntry>,
 }
 
 impl Node {
@@ -75,9 +81,9 @@ impl Node {
     }
 
     pub fn fetch(&self, uri: &str, redirect: bool) -> FutureBody {
-        if let Some(value) = self.data.get(uri) {
+        if let Some(entry) = self.data.get(uri) {
             trace!("fetch existing resource: {} redirect: {}", uri, redirect);
-            return Box::new(future::ok(hyper::Body::from(value.clone())));
+            return Box::new(future::ok(hyper::Body::from(entry.value.clone())));
         }
 
         let resources = if redirect {
@@ -121,20 +127,32 @@ impl Node {
             vec![]
         };
 
-        let remote: Vec<FutureEmpty> = resources
+        let remote: Vec<FutureURI> = resources
             .into_iter()
-            .map(|resource| -> FutureEmpty {
-                Box::new(resource.store(&self.uri, &value).or_else(|err| {
-                    // Single failed store should not fail others
-                    error!("remote store failed due to error: {:#?}", err);
-                    future::ok(())
-                }))
+            .map(|resource| -> FutureURI {
+                // TODO(indutny): excessive cloning?
+                let target_uri = resource.uri().to_string();
+
+                let store = resource
+                    .store(&self.uri, &value)
+                    .map(move |_| Some(target_uri))
+                    .or_else(|err| {
+                        // Single failed store should not fail others
+                        error!("remote store failed due to error: {:#?}", err);
+                        future::ok(None)
+                    });
+                Box::new(store)
             })
             .collect();
 
-        self.data.insert(uri, value);
+        let uris = future::join_all(remote).and_then(|target_uris| {
+            trace!("stored resource remotely at: {:?}", target_uris);
+            future::ok(response::Ok { ok: true })
+        });
 
-        Box::new(future::join_all(remote).and_then(|_| future::ok(response::Ok { ok: true })))
+        self.data.insert(uri, DataEntry { value });
+
+        Box::new(uris)
     }
 
     pub fn send_pings(&mut self) -> FuturePingVec {
@@ -187,12 +205,13 @@ impl Node {
     pub fn rebalance(&mut self) -> FutureKeyVec {
         let now = Instant::now();
 
-        let mut new_peers = HashSet::with_capacity(self.peers.len());
-        self.peers.iter().for_each(|(key, peer)| {
+        let new_peers = HashSet::from_iter(self.peers.values().filter_map(|peer| {
             if peer.stable_at() <= now {
-                new_peers.insert(key.to_string());
+                Some(peer.uri().to_string())
+            } else {
+                None
             }
-        });
+        }));
 
         let has_diff = new_peers
             .symmetric_difference(&self.last_peer_uris)
@@ -209,13 +228,13 @@ impl Node {
         let remotes: Vec<FutureEmpty> = self
             .data
             .iter()
-            .map(|(key, value)| -> FutureEmpty {
+            .map(|(key, entry)| -> FutureEmpty {
                 let resources = self.find_resources(key, now);
 
                 let remote: Vec<FutureEmpty> = resources
                     .into_iter()
                     .map(|resource| -> FutureEmpty {
-                        Box::new(resource.store(&self.uri, &value).or_else(|err| {
+                        Box::new(resource.store(&self.uri, &entry.value).or_else(|err| {
                             // Single failed rebalance should not fail others
                             error!("remote rebalance failed due to error: {:#?}", err);
                             future::ok(())

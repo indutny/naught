@@ -49,6 +49,10 @@ impl Resource {
         }
     }
 
+    pub fn uri(&self) -> &str {
+        &self.uri
+    }
+
     pub fn fetch(&self, sender: &str) -> FutureBody {
         if self.local {
             return Box::new(future::err(Error::NotFound));
@@ -125,6 +129,7 @@ impl Resource {
         };
 
         // TODO(indutny): timeout
+        // TODO(indutny): retry?
         Box::new(
             hyper::Client::new()
                 .request(peek)
