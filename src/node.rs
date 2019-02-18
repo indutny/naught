@@ -215,22 +215,20 @@ impl Node {
             }
         }));
 
-        let has_diff = new_peers
-            .symmetric_difference(&self.last_peer_uris)
-            .next()
-            .map(|_| true)
-            .unwrap_or(false);
+        let diff = HashSet::from_iter(new_peers.symmetric_difference(&self.last_peer_uris));
 
-        if !has_diff {
+        if diff.is_empty() {
             // No rebalancing needed
             return Box::new(future::ok(vec![]));
         }
+
+        let union: Vec<&String> = new_peers.union(&self.last_peer_uris).collect();
 
         let remotes: Vec<FutureEmpty> = self
             .data
             .iter()
             .map(|(key, entry)| -> FutureEmpty {
-                let resources = self.find_rebalance_resources(key, now);
+                let resources = self.find_rebalance_resources(key, now, &diff, &union);
 
                 let remote: Vec<FutureEmpty> = resources
                     .into_iter()
@@ -355,7 +353,13 @@ impl Node {
     }
 
     // TODO(indutny): find new locations for the data
-    fn find_rebalance_resources(&self, _uri: &str, _now: Instant) -> Vec<Resource> {
+    fn find_rebalance_resources(
+        &self,
+        _uri: &str,
+        _now: Instant,
+        _diff: &HashSet<&String>,
+        _union: &[&String],
+    ) -> Vec<Resource> {
         vec![]
     }
 }
