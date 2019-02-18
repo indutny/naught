@@ -59,6 +59,13 @@ impl hyper::service::Service for RPCService {
 
         let (parts, body) = req.into_parts();
 
+        let redirect = parts
+            .headers
+            .get("x-naught-redirect")
+            .map(|val| val.to_str().unwrap_or("true"))
+            .unwrap_or("true");
+        let redirect: bool = redirect.parse().unwrap_or(true);
+
         // TODO(indutny): authorization
         let resource: Box<Future<Item = Resource, Error = Error> + Send> =
             match (parts.method, parts.uri.path()) {
@@ -100,33 +107,26 @@ impl hyper::service::Service for RPCService {
                         raw: false,
                     }),
                 ),
-                (Method::GET, resource) => {
-                    let redirect = parts
-                        .headers
-                        .get("x-naught-redirect")
-                        .map(|val| val.to_str().unwrap_or("true"))
-                        .unwrap_or("true");
-                    let redirect: bool = redirect.parse().unwrap_or(true);
-
-                    Box::new(
-                        self.node
-                            .lock()
-                            .expect("lock to acquire")
-                            .fetch(&resource[1..], redirect)
-                            .map(|body| Resource {
-                                status: StatusCode::OK,
-                                body,
-                                raw: true,
-                            }),
-                    )
-                }
+                (Method::GET, resource) => Box::new(
+                    self.node
+                        .lock()
+                        .expect("lock to acquire")
+                        .fetch(&resource[1..], redirect)
+                        .map(|body| Resource {
+                            status: StatusCode::OK,
+                            body,
+                            raw: true,
+                        }),
+                ),
                 (Method::PUT, resource) => {
                     let node = self.node.clone();
                     let resource = resource[1..].to_string();
                     Box::new(
                         RPCService::fetch_raw(body)
                             .and_then(move |value| {
-                                node.lock().expect("lock to acquire").store(resource, value)
+                                node.lock()
+                                    .expect("lock to acquire")
+                                    .store(resource, value, redirect)
                             })
                             .and_then(|res| RPCService::stringify_value(&res))
                             .map(|body| Resource {

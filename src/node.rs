@@ -1,8 +1,9 @@
 extern crate futures;
 extern crate hyper;
 extern crate serde_json;
+extern crate tokio;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Instant;
 
@@ -19,11 +20,13 @@ type MaybePing = Option<common::Ping>;
 type FuturePingVec = Box<Future<Item = Vec<MaybePing>, Error = Error> + Send>;
 type FuturePing = Box<Future<Item = MaybePing, Error = Error> + Send>;
 type FutureBody = Box<Future<Item = hyper::Body, Error = Error> + Send>;
+type FutureEmpty = Box<Future<Item = (), Error = Error> + Send>;
 
 pub struct Node {
     config: Config,
     uri: String,
     peers: HashMap<String, Peer>,
+    last_peer_uris: HashSet<String>,
     data: HashMap<String, Vec<u8>>,
 }
 
@@ -35,6 +38,7 @@ impl Node {
             config,
             uri,
             peers: HashMap::new(),
+            last_peer_uris: HashSet::new(),
             data: HashMap::new(),
         }
     }
@@ -75,7 +79,8 @@ impl Node {
         }
 
         let resources = if redirect {
-            self.find_resources(uri)
+            let now = Instant::now();
+            self.find_resources(uri, now)
         } else {
             vec![]
         };
@@ -98,6 +103,7 @@ impl Node {
         &mut self,
         uri: String,
         value: Vec<u8>,
+        redirect: bool,
     ) -> Box<Future<Item = response::Empty, Error = Error> + Send> {
         if self.data.contains_key(&uri) {
             trace!("duplicate resource: {}", uri);
@@ -106,14 +112,25 @@ impl Node {
 
         trace!("new resource: {}", uri);
 
-        let resources = self.find_resources(&uri);
-        self.data.insert(uri, value.clone());
+        let resources = if redirect {
+            let now = Instant::now();
+            self.find_resources(&uri, now)
+        } else {
+            vec![]
+        };
 
-        let sender = self.uri.clone();
-
-        let remote = resources
+        let remote: Vec<FutureEmpty> = resources
             .into_iter()
-            .map(move |resource| resource.store(&sender, &value));
+            .map(|resource| -> FutureEmpty {
+                Box::new(resource.store(&self.uri, &value).or_else(|err| {
+                    // Single failed store should not fail others
+                    error!("remote store failed due to error: {:#?}", err);
+                    future::ok(())
+                }))
+            })
+            .collect();
+
+        self.data.insert(uri, value);
 
         Box::new(future::join_all(remote).and_then(|_| future::ok(response::Empty {})))
     }
@@ -196,6 +213,7 @@ impl Node {
 
         let client = hyper::Client::new();
 
+        // TODO(indutny): timeout
         let f = client
             .request(request)
             .and_then(|res| res.into_body().concat2())
@@ -243,9 +261,7 @@ impl Node {
         }
     }
 
-    fn find_resources(&self, resource: &str) -> Vec<Resource> {
-        let now = Instant::now();
-
+    fn find_resources(&self, resource: &str, now: Instant) -> Vec<Resource> {
         // TODO(indutny): LRU
         let mut resources: Vec<Resource> = self
             .peers
@@ -265,5 +281,51 @@ impl Node {
         resources
     }
 
-    fn rebalance(&self) {}
+    fn rebalance(&mut self) {
+        let now = Instant::now();
+
+        let mut new_peers = HashSet::with_capacity(self.peers.len());
+        self.peers.iter().for_each(|(key, peer)| {
+            if peer.stable_at() <= now {
+                new_peers.insert(key.to_string());
+            }
+        });
+
+        let has_diff = new_peers
+            .symmetric_difference(&self.last_peer_uris)
+            .next()
+            .map(|_| true)
+            .unwrap_or(false);
+
+        if !has_diff {
+            // No rebalancing needed
+            return;
+        }
+        self.last_peer_uris = new_peers;
+
+        let remotes: Vec<FutureEmpty> = self
+            .data
+            .iter()
+            .map(|(key, value)| -> FutureEmpty {
+                let resources = self.find_resources(key, now);
+
+                let remote: Vec<FutureEmpty> = resources
+                    .into_iter()
+                    .map(|resource| -> FutureEmpty {
+                        Box::new(resource.store(&self.uri, &value).or_else(|err| {
+                            // Single failed rebalance should not fail others
+                            error!("remote rebalance failed due to error: {:#?}", err);
+                            future::ok(())
+                        }))
+                    })
+                    .collect();
+
+                // TODO(indutny): delete local key on success
+                // XXX(indutny): this is very important
+                Box::new(future::join_all(remote).map(|_| ()))
+            })
+            .collect();
+
+        tokio::spawn(future::join_all(remotes).map(|_| ()).map_err(|_| ()));
+    }
 }

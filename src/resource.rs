@@ -69,6 +69,7 @@ impl Resource {
             }
         };
 
+        // TODO(indutny): timeout
         Box::new(
             hyper::Client::new()
                 .request(request)
@@ -102,6 +103,7 @@ impl Resource {
             }
         };
 
+        // TODO(indutny): timeout
         Box::new(
             hyper::Client::new()
                 .request(request)
