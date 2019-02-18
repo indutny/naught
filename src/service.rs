@@ -78,7 +78,7 @@ impl hyper::service::Service for RPCService {
                             raw: false,
                         }),
                 ),
-                (Method::PUT, "/_ping") => {
+                (Method::POST, "/_ping") => {
                     let node = self.node.clone();
                     Box::new(
                         RPCService::fetch_json(body)
@@ -132,7 +132,7 @@ impl hyper::service::Service for RPCService {
                             .map(|body| Resource {
                                 status: StatusCode::OK,
                                 body,
-                                raw: true,
+                                raw: false,
                             }),
                     )
                 }

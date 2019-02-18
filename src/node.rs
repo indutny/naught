@@ -371,6 +371,7 @@ impl Node {
         removed_peers: &HashSet<String>,
         added_peers: &HashSet<String>,
     ) -> Vec<Resource> {
+        // TODO(indutny): LRU
         let mut resources: Vec<Resource> = union
             .iter()
             .map(|peer_uri| Resource::new(peer_uri, uri, false, self.config.hash_seed))
