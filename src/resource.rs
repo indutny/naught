@@ -15,6 +15,7 @@ type FutureBody = Box<Future<Item = hyper::Body, Error = Error> + Send>;
 
 #[derive(Eq, Debug)]
 pub struct Resource {
+    peer_uri: String,
     uri: String,
     hash: u64,
     local: bool,
@@ -39,14 +40,19 @@ impl PartialEq for Resource {
 }
 
 impl Resource {
-    pub fn new(uri: String, local: bool, hash_seed: (u64, u64)) -> Resource {
+    pub fn new(peer_uri: &str, uri: &str, local: bool, hash_seed: (u64, u64)) -> Resource {
         let mut hasher = SipHasher::new_with_keys(hash_seed.0, hash_seed.1);
         hasher.write(uri.as_bytes());
         Resource {
-            uri,
+            peer_uri: peer_uri.to_string(),
+            uri: format!("{}/{}", peer_uri, uri),
             local,
             hash: hasher.finish(),
         }
+    }
+
+    pub fn peer_uri(&self) -> &str {
+        &self.peer_uri
     }
 
     pub fn uri(&self) -> &str {

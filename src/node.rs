@@ -140,7 +140,7 @@ impl Node {
                     .map(move |_| Some(target_uri))
                     .or_else(|err| {
                         // Single failed store should not fail others
-                        error!("remote store failed due to error: {:#?}", err);
+                        error!("remote store failed due to error: {:?}", err);
                         future::ok(None)
                     });
                 Box::new(store)
@@ -197,7 +197,7 @@ impl Node {
             Node::send_single_ping(ping.to_string(), &uri).or_else(move |err| {
                 // Single failed ping should not prevent other pings
                 // from happening
-                error!("ping to {} failed due to error: {:#?}", uri, err);
+                error!("ping to {} failed due to error: {:?}", uri, err);
                 future::ok(None)
             })
         });
@@ -215,33 +215,32 @@ impl Node {
             }
         }));
 
-        let has_diff = new_peers
-            .symmetric_difference(&self.last_peer_uris)
-            .next()
-            .map(|_| true)
-            .unwrap_or(false);
+        let diff = HashSet::from_iter(
+            new_peers
+                .symmetric_difference(&self.last_peer_uris)
+                .map(|uri| uri.to_string()),
+        );
 
-        if !has_diff {
+        if diff.is_empty() {
             // No rebalancing needed
             trace!("rebalance: no new/removed peers");
             return Box::new(future::ok(vec![]));
         }
 
-        trace!("rebalance: start");
-        let union: Vec<&String> = new_peers.union(&self.last_peer_uris).collect();
+        trace!("rebalance: start, diff={:?}", diff);
 
         let remotes: Vec<FutureEmpty> = self
             .data
             .iter()
             .map(|(key, entry)| -> FutureEmpty {
-                let resources = self.find_rebalance_resources(key, &new_peers, &union);
+                let resources = self.find_rebalance_resources(key, &new_peers, &diff);
 
                 let remote: Vec<FutureEmpty> = resources
                     .into_iter()
                     .map(|resource| -> FutureEmpty {
                         Box::new(resource.store(&self.uri, &entry.value).or_else(|err| {
                             // Single failed rebalance should not fail others
-                            error!("remote rebalance failed due to error: {:#?}", err);
+                            error!("remote rebalance failed due to error: {:?}", err);
                             future::ok(())
                         }))
                     })
@@ -269,7 +268,7 @@ impl Node {
     }
 
     fn construct_resource(&self, uri: &str) -> Resource {
-        Resource::new(format!("{}/{}", self.uri, uri), true, self.config.hash_seed)
+        Resource::new(&self.uri, uri, true, self.config.hash_seed)
     }
 
     fn send_single_ping(ping: String, uri: &str) -> FuturePing {
@@ -348,8 +347,7 @@ impl Node {
             .peers
             .values()
             .filter(|peer| peer.stable_at() <= now)
-            .map(|peer| format!("{}/{}", peer.uri(), uri))
-            .map(|uri| Resource::new(uri, false, self.config.hash_seed))
+            .map(|peer| Resource::new(peer.uri(), uri, false, self.config.hash_seed))
             .collect();
         resources.push(self.construct_resource(uri));
         resources.sort_unstable();
@@ -362,13 +360,12 @@ impl Node {
     fn find_rebalance_resources(
         &self,
         uri: &str,
-        new_peers: &HashSet<String>,
-        union: &[&String],
+        peers: &HashSet<String>,
+        diff: &HashSet<String>,
     ) -> Vec<Resource> {
-        let mut resources: Vec<Resource> = union
+        let mut resources: Vec<Resource> = peers
             .iter()
-            .map(|peer_uri| format!("{}/{}", peer_uri, uri))
-            .map(|uri| Resource::new(uri, false, self.config.hash_seed))
+            .map(|peer_uri| Resource::new(peer_uri, uri, false, self.config.hash_seed))
             .collect();
         resources.push(self.construct_resource(uri));
         resources.sort_unstable();
@@ -376,7 +373,7 @@ impl Node {
 
         resources
             .into_iter()
-            .filter(|resource| new_peers.contains(resource.uri()))
+            .filter(|resource| diff.contains(resource.peer_uri()))
             .collect()
     }
 }
