@@ -21,6 +21,7 @@ use crate::peer::Peer;
 type MaybePing = Option<common::Ping>;
 type FuturePingVec = Box<Future<Item = Vec<MaybePing>, Error = Error> + Send>;
 type FuturePing = Box<Future<Item = MaybePing, Error = Error> + Send>;
+type FutureBody = Box<Future<Item = hyper::Body, Error = Error> + Send>;
 
 #[derive(Eq, Debug)]
 struct Resource {
@@ -107,14 +108,14 @@ impl Node {
         }
     }
 
-    pub fn fetch(&self, resource: &str, redirect: bool) -> Result<hyper::Body, Error> {
+    pub fn fetch(&self, resource: &str, redirect: bool) -> FutureBody {
         if let Some(value) = self.data.get(resource) {
             trace!(
                 "fetch existing resource: {} redirect: {}",
                 resource,
                 redirect
             );
-            return Ok(hyper::Body::from(value.clone()));
+            return Box::new(future::ok(hyper::Body::from(value.clone())));
         }
 
         let resources = if redirect {
@@ -130,10 +131,15 @@ impl Node {
                 resource,
                 redirect
             );
-            return Err(Error::NotFound);
+            return Box::new(future::err(Error::NotFound));
         }
 
-        Err(Error::NotFound)
+        let reqs: Vec<FutureBody> = resources
+            .into_iter()
+            .map(|res| self.fetch_remote_resource(res))
+            .collect();
+
+        Box::new(future::select_ok(reqs).map(|(body, _)| body))
     }
 
     pub fn store(&mut self, resource: String, value: Vec<u8>) -> Result<response::Empty, Error> {
@@ -283,5 +289,32 @@ impl Node {
 
         resources.truncate(self.config.replicate as usize + 1);
         resources
+    }
+
+    fn fetch_remote_resource(&self, resource: Resource) -> FutureBody {
+        if resource.local {
+            return Box::new(future::err(Error::NotFound));
+        }
+
+        trace!("fetch remote resource: {}", resource.uri);
+        let request = hyper::Request::builder()
+            .method("GET")
+            .uri(resource.uri)
+            .header("x-naught-redirect", "false")
+            .body(hyper::Body::empty());
+
+        let request = match request {
+            Ok(request) => request,
+            Err(err) => {
+                return Box::new(future::err(Error::from(err)));
+            }
+        };
+
+        Box::new(
+            hyper::Client::new()
+                .request(request)
+                .from_err::<Error>()
+                .map(|res| res.into_body()),
+        )
     }
 }

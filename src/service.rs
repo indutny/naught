@@ -109,17 +109,15 @@ impl hyper::service::Service for RPCService {
                     let redirect: bool = redirect.parse().unwrap_or(true);
 
                     Box::new(
-                        future::result(
-                            self.node
-                                .lock()
-                                .expect("lock to acquire")
-                                .fetch(&resource[1..], redirect),
-                        )
-                        .map(|body| Resource {
-                            status: StatusCode::OK,
-                            body,
-                            raw: true,
-                        }),
+                        self.node
+                            .lock()
+                            .expect("lock to acquire")
+                            .fetch(&resource[1..], redirect)
+                            .map(|body| Resource {
+                                status: StatusCode::OK,
+                                body,
+                                raw: true,
+                            }),
                     )
                 }
                 (Method::PUT, resource) => {
