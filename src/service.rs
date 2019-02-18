@@ -100,19 +100,28 @@ impl hyper::service::Service for RPCService {
                         raw: false,
                     }),
                 ),
-                (Method::GET, resource) => Box::new(
-                    future::result(
-                        self.node
-                            .lock()
-                            .expect("lock to acquire")
-                            .fetch(&resource[1..], false),
+                (Method::GET, resource) => {
+                    let redirect = parts
+                        .headers
+                        .get("x-naught-redirect")
+                        .map(|val| val.to_str().unwrap_or("true"))
+                        .unwrap_or("true");
+                    let redirect: bool = redirect.parse().unwrap_or(true);
+
+                    Box::new(
+                        future::result(
+                            self.node
+                                .lock()
+                                .expect("lock to acquire")
+                                .fetch(&resource[1..], redirect),
+                        )
+                        .map(|body| Resource {
+                            status: StatusCode::OK,
+                            body,
+                            raw: true,
+                        }),
                     )
-                    .map(|body| Resource {
-                        status: StatusCode::OK,
-                        body,
-                        raw: true,
-                    }),
-                ),
+                }
                 (Method::PUT, resource) => {
                     let node = self.node.clone();
                     let resource = resource[1..].to_string();

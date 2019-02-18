@@ -72,11 +72,19 @@ impl Node {
     pub fn fetch(&self, resource: &str, redirect: bool) -> Result<hyper::Body, Error> {
         match self.data.get(resource) {
             Some(value) => {
-                trace!("fetch existing resource: {}", resource);
+                trace!(
+                    "fetch existing resource: {} redirect: {}",
+                    resource,
+                    redirect
+                );
                 Ok(hyper::Body::from(value.clone()))
             }
             None => {
-                trace!("fetch missing resource: {}", resource);
+                trace!(
+                    "fetch missing resource: {} redirect: {}",
+                    resource,
+                    redirect
+                );
                 Err(Error::NotFound)
             }
         }
