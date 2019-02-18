@@ -35,10 +35,10 @@ impl RPCService {
             .map(|chunk| chunk.to_vec())
     }
 
-    fn to_json_body<T: Serialize>(value: &T) -> Result<Body, Error> {
+    fn stringify_value<T: Serialize>(value: &T) -> Result<Body, Error> {
         serde_json::to_string(value)
             .map(Body::from)
-            .map_err(|err| Error::from(err))
+            .map_err(Error::from)
     }
 }
 
@@ -64,7 +64,7 @@ impl hyper::service::Service for RPCService {
             match (parts.method, parts.uri.path()) {
                 (Method::GET, "/_info") => Box::new(
                     future::result(self.node.lock().expect("lock to acquire").recv_info())
-                        .and_then(|info| RPCService::to_json_body(&info))
+                        .and_then(|info| RPCService::stringify_value(&info))
                         .map(|body| Resource {
                             status: StatusCode::OK,
                             body,
@@ -78,7 +78,7 @@ impl hyper::service::Service for RPCService {
                             .and_then(move |ping| {
                                 node.lock().expect("lock to acquire").recv_ping(&ping)
                             })
-                            .and_then(|res| RPCService::to_json_body(&res))
+                            .and_then(|res| RPCService::stringify_value(&res))
                             .map(|body| Resource {
                                 status: StatusCode::OK,
                                 body,
@@ -93,7 +93,7 @@ impl hyper::service::Service for RPCService {
                             .expect("lock to acquire")
                             .peek(&resource[1..]),
                     )
-                    .and_then(|res| RPCService::to_json_body(&res))
+                    .and_then(|res| RPCService::stringify_value(&res))
                     .map(|body| Resource {
                         status: StatusCode::OK,
                         body,
@@ -130,7 +130,7 @@ impl hyper::service::Service for RPCService {
                             .and_then(move |value| {
                                 node.lock().expect("lock to acquire").store(resource, value)
                             })
-                            .and_then(|res| RPCService::to_json_body(&res))
+                            .and_then(|res| RPCService::stringify_value(&res))
                             .map(|body| Resource {
                                 status: StatusCode::OK,
                                 body,
@@ -150,7 +150,7 @@ impl hyper::service::Service for RPCService {
                         _ => StatusCode::INTERNAL_SERVER_ERROR,
                     };
                     let json = serde_json::to_string(&response::Error { error: err })
-                        .unwrap_or("{\"error\":\"unknown error\"}".to_string());
+                        .unwrap_or_else(|_| "{\"error\":\"unknown error\"}".to_string());
                     Ok(Resource {
                         status,
                         body: Body::from(json),

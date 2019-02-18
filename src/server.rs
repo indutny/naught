@@ -31,7 +31,7 @@ impl Server {
 
         let builder = hyper::Server::bind(&bind_addr);
 
-        let node = Node::new(bind_addr.clone(), self.config.clone());
+        let node = Node::new(bind_addr, self.config.clone());
         let node = Arc::new(Mutex::new(node));
 
         let serve_node = node.clone();

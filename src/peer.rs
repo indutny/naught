@@ -14,8 +14,9 @@ pub struct Peer {
 impl Peer {
     pub fn new(uri: String, config: Config) -> Self {
         let now = Instant::now();
-        let ping_at = now + config.ping_every;
         let remove_at = now + config.alive_timeout;
+        // TODO(indutny): randomize
+        let ping_at = now + config.ping_every;
 
         Self {
             config,
@@ -32,6 +33,7 @@ impl Peer {
     pub fn mark_alive(&mut self) {
         let now = Instant::now();
         self.remove_at = now + self.config.alive_timeout;
+        // TODO(indutny): randomize
         self.ping_at = now + self.config.ping_every;
     }
 

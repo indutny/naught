@@ -3,6 +3,7 @@ extern crate hyper;
 extern crate serde_json;
 extern crate siphasher;
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::Hasher;
 use std::net::SocketAddr;
@@ -20,6 +21,43 @@ use crate::peer::Peer;
 type MaybePing = Option<common::Ping>;
 type FuturePingVec = Box<Future<Item = Vec<MaybePing>, Error = Error> + Send>;
 type FuturePing = Box<Future<Item = MaybePing, Error = Error> + Send>;
+
+#[derive(Eq, Debug)]
+struct Resource {
+    uri: String,
+    hash: u64,
+    local: bool,
+}
+
+impl Ord for Resource {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.hash.cmp(&other.hash)
+    }
+}
+
+impl PartialOrd for Resource {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Resource {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl Resource {
+    fn new(uri: String, local: bool, hash_seed: (u64, u64)) -> Resource {
+        let mut hasher = SipHasher::new_with_keys(hash_seed.0, hash_seed.1);
+        hasher.write(uri.as_bytes());
+        Resource {
+            uri,
+            local,
+            hash: hasher.finish(),
+        }
+    }
+}
 
 pub struct Node {
     config: Config,
@@ -70,24 +108,32 @@ impl Node {
     }
 
     pub fn fetch(&self, resource: &str, redirect: bool) -> Result<hyper::Body, Error> {
-        match self.data.get(resource) {
-            Some(value) => {
-                trace!(
-                    "fetch existing resource: {} redirect: {}",
-                    resource,
-                    redirect
-                );
-                Ok(hyper::Body::from(value.clone()))
-            }
-            None => {
-                trace!(
-                    "fetch missing resource: {} redirect: {}",
-                    resource,
-                    redirect
-                );
-                Err(Error::NotFound)
-            }
+        if let Some(value) = self.data.get(resource) {
+            trace!(
+                "fetch existing resource: {} redirect: {}",
+                resource,
+                redirect
+            );
+            return Ok(hyper::Body::from(value.clone()));
         }
+
+        let resources = if redirect {
+            self.find_resource(resource)
+        } else {
+            vec![]
+        };
+
+        // No resources to redirect to
+        if resources.is_empty() {
+            trace!(
+                "fetch missing resource: {} redirect: {}",
+                resource,
+                redirect
+            );
+            return Err(Error::NotFound);
+        }
+
+        Err(Error::NotFound)
     }
 
     pub fn store(&mut self, resource: String, value: Vec<u8>) -> Result<response::Empty, Error> {
@@ -186,7 +232,7 @@ impl Node {
         Box::new(f)
     }
 
-    fn on_ping(&mut self, sender: &str, peers: &Vec<String>) {
+    fn on_ping(&mut self, sender: &str, peers: &[String]) {
         if sender == self.uri {
             return;
         }
@@ -218,5 +264,24 @@ impl Node {
             self.peers
                 .insert(uri_str.clone(), Peer::new(uri_str, self.config.clone()));
         }
+    }
+
+    fn find_resource(&self, resource: &str) -> Vec<Resource> {
+        // TODO(indutny): LRU
+        let mut resources: Vec<Resource> = self
+            .peers
+            .values()
+            .map(|peer| format!("{}/{}", peer.uri(), resource))
+            .map(|uri| Resource::new(uri, false, self.config.hash_seed))
+            .collect();
+        resources.push(Resource::new(
+            format!("{}/{}", self.uri, resource),
+            true,
+            self.config.hash_seed,
+        ));
+        resources.sort_unstable();
+
+        resources.truncate(self.config.replicate as usize + 1);
+        resources
     }
 }
