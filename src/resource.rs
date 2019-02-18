@@ -74,7 +74,14 @@ impl Resource {
             hyper::Client::new()
                 .request(request)
                 .from_err::<Error>()
-                .map(|res| res.into_body()),
+                .and_then(|response| {
+                    if response.status() == hyper::StatusCode::OK {
+                        Ok(response)
+                    } else {
+                        Err(Error::NotFound)
+                    }
+                })
+                .map(|response| response.into_body()),
         )
     }
 
@@ -88,17 +95,30 @@ impl Resource {
             return Box::new(future::ok(()));
         }
 
-        // TODO(indutny): peek before storing
+        let peek = hyper::Request::builder()
+            .method("HEAD")
+            .uri(self.uri.to_string())
+            .header("x-naught-sender", sender.to_string())
+            .header("x-naught-redirect", "false")
+            .body(hyper::Body::empty());
+
         trace!("store remote resource: {}", self.uri);
-        let request = hyper::Request::builder()
+        let store = hyper::Request::builder()
             .method("PUT")
             .uri(self.uri.to_string())
             .header("x-naught-sender", sender.to_string())
             .header("x-naught-redirect", "false")
             .body(hyper::Body::from(value.to_vec()));
 
-        let request = match request {
-            Ok(request) => request,
+        let peek = match peek {
+            Ok(peek) => peek,
+            Err(err) => {
+                return Box::new(future::err(Error::from(err)));
+            }
+        };
+
+        let store = match store {
+            Ok(store) => store,
             Err(err) => {
                 return Box::new(future::err(Error::from(err)));
             }
@@ -107,9 +127,27 @@ impl Resource {
         // TODO(indutny): timeout
         Box::new(
             hyper::Client::new()
-                .request(request)
+                .request(peek)
                 .from_err::<Error>()
-                .map(|_| ()),
+                .and_then(|response| {
+                    if response.status() == hyper::StatusCode::OK {
+                        Ok(())
+                    } else {
+                        Err(Error::NotFound)
+                    }
+                })
+                .or_else(|_| {
+                    hyper::Client::new()
+                        .request(store)
+                        .from_err::<Error>()
+                        .and_then(|response| {
+                            if response.status() == hyper::StatusCode::OK {
+                                Ok(())
+                            } else {
+                                Err(Error::StoreFailed)
+                            }
+                        })
+                }),
         )
     }
 }

@@ -21,6 +21,7 @@ type FuturePingVec = Box<Future<Item = Vec<MaybePing>, Error = Error> + Send>;
 type FuturePing = Box<Future<Item = MaybePing, Error = Error> + Send>;
 type FutureBody = Box<Future<Item = hyper::Body, Error = Error> + Send>;
 type FutureEmpty = Box<Future<Item = (), Error = Error> + Send>;
+type FutureChunk = Box<Future<Item = hyper::Chunk, Error = Error> + Send>;
 
 pub struct Node {
     config: Config,
@@ -216,8 +217,14 @@ impl Node {
         // TODO(indutny): timeout
         let f = client
             .request(request)
-            .and_then(|res| res.into_body().concat2())
             .from_err::<Error>()
+            .and_then(|response| -> FutureChunk {
+                if response.status() == hyper::StatusCode::OK {
+                    Box::new(response.into_body().concat2().from_err())
+                } else {
+                    Box::new(future::err(Error::PingFailed))
+                }
+            })
             .and_then(|chunk| serde_json::from_slice::<common::Ping>(&chunk).map_err(Error::from))
             .and_then(|ping| future::ok(Some(ping)))
             .from_err::<Error>();
