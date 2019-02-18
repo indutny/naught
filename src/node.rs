@@ -34,6 +34,7 @@ pub struct Node {
     config: Config,
     uri: String,
     peers: HashMap<String, Peer>,
+    last_peers: HashMap<String, Peer>,
     last_peer_uris: HashSet<String>,
     data: HashMap<String, DataEntry>,
 }
@@ -46,6 +47,7 @@ impl Node {
             config,
             uri,
             peers: HashMap::new(),
+            last_peers: HashMap::new(),
             last_peer_uris: HashSet::new(),
             data: HashMap::new(),
         }
@@ -223,13 +225,12 @@ impl Node {
             // No rebalancing needed
             return Box::new(future::ok(vec![]));
         }
-        self.last_peer_uris = new_peers;
 
         let remotes: Vec<FutureEmpty> = self
             .data
             .iter()
             .map(|(key, entry)| -> FutureEmpty {
-                let resources = self.find_resources(key, now);
+                let resources = self.find_rebalance_resources(key, now);
 
                 let remote: Vec<FutureEmpty> = resources
                     .into_iter()
@@ -247,6 +248,9 @@ impl Node {
                 Box::new(future::join_all(remote).map(|_| ()))
             })
             .collect();
+
+        self.last_peer_uris = new_peers;
+        self.last_peers = self.peers.clone();
 
         Box::new(future::join_all(remotes).map(|_| vec![]))
     }
@@ -330,17 +334,17 @@ impl Node {
         }
     }
 
-    fn find_resources(&self, resource: &str, now: Instant) -> Vec<Resource> {
+    fn find_resources(&self, uri: &str, now: Instant) -> Vec<Resource> {
         // TODO(indutny): LRU
         let mut resources: Vec<Resource> = self
             .peers
             .values()
             .filter(|peer| peer.stable_at() <= now)
-            .map(|peer| format!("{}/{}", peer.uri(), resource))
+            .map(|peer| format!("{}/{}", peer.uri(), uri))
             .map(|uri| Resource::new(uri, false, self.config.hash_seed))
             .collect();
         resources.push(Resource::new(
-            format!("{}/{}", self.uri, resource),
+            format!("{}/{}", self.uri, uri),
             true,
             self.config.hash_seed,
         ));
@@ -348,5 +352,10 @@ impl Node {
 
         resources.truncate(self.config.replicate as usize + 1);
         resources
+    }
+
+    // TODO(indutny): find new locations for the data
+    fn find_rebalance_resources(&self, _uri: &str, _now: Instant) -> Vec<Resource> {
+        vec![]
     }
 }

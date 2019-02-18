@@ -7,6 +7,7 @@ use rand::{thread_rng, Rng};
 
 use crate::config::Config;
 
+#[derive(Debug, Clone)]
 pub struct Peer {
     config: Config,
 
