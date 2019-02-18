@@ -134,9 +134,13 @@ impl Node {
             })
             .collect();
 
-        for key in to_remove {
+        for key in to_remove.iter() {
             trace!("remove peer: {}", key);
-            self.peers.remove(&key);
+            self.peers.remove(key);
+        }
+
+        if !to_remove.is_empty() {
+            self.rebalance();
         }
 
         // Ping alive peers
@@ -215,6 +219,8 @@ impl Node {
             self.add_peer(&peer_uri);
         }
 
+        self.rebalance();
+
         let sender_peer = self.peers.get_mut(sender).expect("Sender to be present");
 
         sender_peer.mark_alive();
@@ -238,10 +244,13 @@ impl Node {
     }
 
     fn find_resources(&self, resource: &str) -> Vec<Resource> {
+        let now = Instant::now();
+
         // TODO(indutny): LRU
         let mut resources: Vec<Resource> = self
             .peers
             .values()
+            .filter(|peer| peer.stable_at() <= now)
             .map(|peer| format!("{}/{}", peer.uri(), resource))
             .map(|uri| Resource::new(uri, false, self.config.hash_seed))
             .collect();
@@ -255,4 +264,6 @@ impl Node {
         resources.truncate(self.config.replicate as usize + 1);
         resources
     }
+
+    fn rebalance(&self) {}
 }

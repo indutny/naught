@@ -12,10 +12,14 @@ pub struct Config {
     pub initial_peers: Vec<String>,
 
     // How often to ping other nodes
-    pub ping_every: Duration,
+    pub min_ping_every: Duration,
+    pub max_ping_every: Duration,
 
     // How many ping retries to allow
     pub alive_timeout: Duration,
+
+    // How many second to wait before considering node stable
+    pub stable_delay: Duration,
 }
 
 impl Config {
@@ -24,8 +28,10 @@ impl Config {
             hash_seed,
             replicate: 2,
             initial_peers: vec![],
-            ping_every: Duration::from_secs(5),
+            min_ping_every: Duration::from_secs(1),
+            max_ping_every: Duration::from_secs(5),
             alive_timeout: Duration::from_secs(30),
+            stable_delay: Duration::from_secs(10),
         }
     }
 }
