@@ -21,7 +21,6 @@ impl Peer {
         let now = Instant::now();
         let remove_at = now + config.alive_timeout;
         let stable_at = now + config.stable_delay;
-        // TODO(indutny): randomize
         let ping_at = now + Peer::ping_delay(&config);
 
         Self {
@@ -55,7 +54,6 @@ impl Peer {
     pub fn mark_alive(&mut self) {
         let now = Instant::now();
         self.remove_at = now + self.config.alive_timeout;
-        // TODO(indutny): randomize
         self.ping_at = now + Peer::ping_delay(&self.config);
     }
 
