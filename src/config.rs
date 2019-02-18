@@ -34,13 +34,13 @@ impl Config {
     pub fn new(hash_seed: (u64, u64)) -> Self {
         Self {
             hash_seed,
-            replicate: 2,
+            replicate: 1,
             initial_peers: vec![],
             ping_every: PingEvery {
                 min: Duration::from_secs(1),
                 max: Duration::from_secs(5),
             },
-            alive_timeout: Duration::from_secs(30),
+            alive_timeout: Duration::from_secs(15),
             stable_delay: Duration::from_secs(10),
             rebalance_every: Duration::from_secs(10),
         }

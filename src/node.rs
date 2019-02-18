@@ -34,9 +34,12 @@ pub struct Node {
     config: Config,
     uri: String,
     peers: HashMap<String, Peer>,
-    last_peers: HashMap<String, Peer>,
-    last_peer_uris: HashSet<String>,
     data: HashMap<String, DataEntry>,
+
+    // Last peers before rebalance
+    last_peers: HashMap<String, Peer>,
+    // Their uris
+    last_peer_uris: HashSet<String>,
 }
 
 impl Node {
@@ -47,9 +50,10 @@ impl Node {
             config,
             uri,
             peers: HashMap::new(),
+            data: HashMap::new(),
+
             last_peers: HashMap::new(),
             last_peer_uris: HashSet::new(),
-            data: HashMap::new(),
         }
     }
 
@@ -215,25 +219,28 @@ impl Node {
             }
         }));
 
-        let diff = HashSet::from_iter(
-            new_peers
-                .symmetric_difference(&self.last_peer_uris)
-                .map(|uri| uri.to_string()),
-        );
+        let added_peers = HashSet::from_iter(new_peers.difference(&self.last_peer_uris).cloned());
+        let removed_peers = HashSet::from_iter(self.last_peer_uris.difference(&new_peers).cloned());
 
-        if diff.is_empty() {
+        if added_peers.is_empty() && removed_peers.is_empty() {
             // No rebalancing needed
             trace!("rebalance: no new/removed peers");
             return Box::new(future::ok(vec![]));
         }
 
-        trace!("rebalance: start, diff={:?}", diff);
+        trace!(
+            "rebalance: start removed={:?} added={:?}",
+            removed_peers,
+            added_peers
+        );
+        let union: Vec<&String> = new_peers.union(&self.last_peer_uris).collect();
 
         let remotes: Vec<FutureEmpty> = self
             .data
             .iter()
             .map(|(key, entry)| -> FutureEmpty {
-                let resources = self.find_rebalance_resources(key, &new_peers, &diff);
+                let resources =
+                    self.find_rebalance_resources(key, &union, &removed_peers, &added_peers);
 
                 let remote: Vec<FutureEmpty> = resources
                     .into_iter()
@@ -360,20 +367,23 @@ impl Node {
     fn find_rebalance_resources(
         &self,
         uri: &str,
-        peers: &HashSet<String>,
-        diff: &HashSet<String>,
+        union: &[&String],
+        removed_peers: &HashSet<String>,
+        added_peers: &HashSet<String>,
     ) -> Vec<Resource> {
-        let mut resources: Vec<Resource> = peers
+        let mut resources: Vec<Resource> = union
             .iter()
             .map(|peer_uri| Resource::new(peer_uri, uri, false, self.config.hash_seed))
+            .filter(|resource| !removed_peers.contains(resource.peer_uri()))
             .collect();
         resources.push(self.construct_resource(uri));
         resources.sort_unstable();
+
         resources.truncate(self.config.replicate as usize + 1);
 
         resources
             .into_iter()
-            .filter(|resource| diff.contains(resource.peer_uri()))
+            .filter(|resource| added_peers.contains(resource.peer_uri()))
             .collect()
     }
 }
