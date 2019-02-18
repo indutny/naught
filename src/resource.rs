@@ -88,6 +88,7 @@ impl Resource {
             return Box::new(future::ok(()));
         }
 
+        // TODO(indutny): peek before storing
         trace!("store remote resource: {}", self.uri);
         let request = hyper::Request::builder()
             .method("PUT")
