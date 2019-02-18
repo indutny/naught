@@ -22,6 +22,7 @@ type FuturePing = Box<Future<Item = MaybePing, Error = Error> + Send>;
 type FutureBody = Box<Future<Item = hyper::Body, Error = Error> + Send>;
 type FutureEmpty = Box<Future<Item = (), Error = Error> + Send>;
 type FutureChunk = Box<Future<Item = hyper::Chunk, Error = Error> + Send>;
+type FutureKeyVec = Box<Future<Item = Vec<String>, Error = Error> + Send>;
 
 pub struct Node {
     config: Config,
@@ -157,10 +158,6 @@ impl Node {
             self.peers.remove(key);
         }
 
-        if !to_remove.is_empty() {
-            self.rebalance();
-        }
-
         // Ping alive peers
         let uris: Vec<String> = self
             .peers
@@ -185,6 +182,54 @@ impl Node {
             })
         });
         Box::new(future::join_all(pings))
+    }
+
+    pub fn rebalance(&mut self) -> FutureKeyVec {
+        let now = Instant::now();
+
+        let mut new_peers = HashSet::with_capacity(self.peers.len());
+        self.peers.iter().for_each(|(key, peer)| {
+            if peer.stable_at() <= now {
+                new_peers.insert(key.to_string());
+            }
+        });
+
+        let has_diff = new_peers
+            .symmetric_difference(&self.last_peer_uris)
+            .next()
+            .map(|_| true)
+            .unwrap_or(false);
+
+        if !has_diff {
+            // No rebalancing needed
+            return Box::new(future::ok(vec![]));
+        }
+        self.last_peer_uris = new_peers;
+
+        let remotes: Vec<FutureEmpty> = self
+            .data
+            .iter()
+            .map(|(key, value)| -> FutureEmpty {
+                let resources = self.find_resources(key, now);
+
+                let remote: Vec<FutureEmpty> = resources
+                    .into_iter()
+                    .map(|resource| -> FutureEmpty {
+                        Box::new(resource.store(&self.uri, &value).or_else(|err| {
+                            // Single failed rebalance should not fail others
+                            error!("remote rebalance failed due to error: {:#?}", err);
+                            future::ok(())
+                        }))
+                    })
+                    .collect();
+
+                // TODO(indutny): delete local key on success
+                // XXX(indutny): this is very important
+                Box::new(future::join_all(remote).map(|_| ()))
+            })
+            .collect();
+
+        Box::new(future::join_all(remotes).map(|_| vec![]))
     }
 
     // Internal methods
@@ -244,8 +289,6 @@ impl Node {
             self.add_peer(&peer_uri);
         }
 
-        self.rebalance();
-
         let sender_peer = self.peers.get_mut(sender).expect("Sender to be present");
 
         sender_peer.mark_alive();
@@ -286,53 +329,5 @@ impl Node {
 
         resources.truncate(self.config.replicate as usize + 1);
         resources
-    }
-
-    fn rebalance(&mut self) {
-        let now = Instant::now();
-
-        let mut new_peers = HashSet::with_capacity(self.peers.len());
-        self.peers.iter().for_each(|(key, peer)| {
-            if peer.stable_at() <= now {
-                new_peers.insert(key.to_string());
-            }
-        });
-
-        let has_diff = new_peers
-            .symmetric_difference(&self.last_peer_uris)
-            .next()
-            .map(|_| true)
-            .unwrap_or(false);
-
-        if !has_diff {
-            // No rebalancing needed
-            return;
-        }
-        self.last_peer_uris = new_peers;
-
-        let remotes: Vec<FutureEmpty> = self
-            .data
-            .iter()
-            .map(|(key, value)| -> FutureEmpty {
-                let resources = self.find_resources(key, now);
-
-                let remote: Vec<FutureEmpty> = resources
-                    .into_iter()
-                    .map(|resource| -> FutureEmpty {
-                        Box::new(resource.store(&self.uri, &value).or_else(|err| {
-                            // Single failed rebalance should not fail others
-                            error!("remote rebalance failed due to error: {:#?}", err);
-                            future::ok(())
-                        }))
-                    })
-                    .collect();
-
-                // TODO(indutny): delete local key on success
-                // XXX(indutny): this is very important
-                Box::new(future::join_all(remote).map(|_| ()))
-            })
-            .collect();
-
-        tokio::spawn(future::join_all(remotes).map(|_| ()).map_err(|_| ()));
     }
 }

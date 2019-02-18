@@ -40,7 +40,7 @@ impl Server {
             .from_err();
 
         let interval_node = node.clone();
-        let interval = Interval::new(Instant::now(), self.config.min_ping_every)
+        let interval = Interval::new(Instant::now(), self.config.ping_every.min)
             .from_err::<Error>()
             .for_each(move |_| {
                 let ping_node = interval_node.clone();

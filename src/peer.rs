@@ -33,8 +33,8 @@ impl Peer {
     }
 
     fn ping_delay(config: &Config) -> Duration {
-        let min = config.min_ping_every;
-        let max = config.max_ping_every;
+        let min = config.ping_every.min;
+        let max = config.ping_every.max;
 
         let min = min.as_secs() as f64 + f64::from(min.subsec_nanos()) * 1e-9;
         let max = max.as_secs() as f64 + f64::from(max.subsec_nanos()) * 1e-9;
