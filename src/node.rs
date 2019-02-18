@@ -1,64 +1,24 @@
 extern crate futures;
 extern crate hyper;
 extern crate serde_json;
-extern crate siphasher;
 
-use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::hash::Hasher;
 use std::net::SocketAddr;
 use std::time::Instant;
 
 use futures::future;
 use futures::prelude::*;
-use siphasher::sip::SipHasher;
 
 use crate::config::Config;
 use crate::error::Error;
 use crate::message::{common, response};
 use crate::peer::Peer;
+use crate::resource::Resource;
 
 type MaybePing = Option<common::Ping>;
 type FuturePingVec = Box<Future<Item = Vec<MaybePing>, Error = Error> + Send>;
 type FuturePing = Box<Future<Item = MaybePing, Error = Error> + Send>;
 type FutureBody = Box<Future<Item = hyper::Body, Error = Error> + Send>;
-
-#[derive(Eq, Debug)]
-struct Resource {
-    uri: String,
-    hash: u64,
-    local: bool,
-}
-
-impl Ord for Resource {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.hash.cmp(&other.hash)
-    }
-}
-
-impl PartialOrd for Resource {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for Resource {
-    fn eq(&self, other: &Self) -> bool {
-        self.hash == other.hash
-    }
-}
-
-impl Resource {
-    fn new(uri: String, local: bool, hash_seed: (u64, u64)) -> Resource {
-        let mut hasher = SipHasher::new_with_keys(hash_seed.0, hash_seed.1);
-        hasher.write(uri.as_bytes());
-        Resource {
-            uri,
-            local,
-            hash: hasher.finish(),
-        }
-    }
-}
 
 pub struct Node {
     config: Config,
@@ -98,59 +58,64 @@ impl Node {
         Ok(self.construct_ping())
     }
 
-    pub fn peek(&self, resource: &str) -> Result<(), Error> {
-        if self.data.contains_key(resource) {
-            trace!("peek existing resource: {}", resource);
+    pub fn peek(&self, uri: &str) -> Result<(), Error> {
+        if self.data.contains_key(uri) {
+            trace!("peek existing resource: {}", uri);
             Ok(())
         } else {
-            trace!("peek missing resource: {}", resource);
+            trace!("peek missing resource: {}", uri);
             Err(Error::NotFound)
         }
     }
 
-    pub fn fetch(&self, resource: &str, redirect: bool) -> FutureBody {
-        if let Some(value) = self.data.get(resource) {
-            trace!(
-                "fetch existing resource: {} redirect: {}",
-                resource,
-                redirect
-            );
+    pub fn fetch(&self, uri: &str, redirect: bool) -> FutureBody {
+        if let Some(value) = self.data.get(uri) {
+            trace!("fetch existing resource: {} redirect: {}", uri, redirect);
             return Box::new(future::ok(hyper::Body::from(value.clone())));
         }
 
         let resources = if redirect {
-            self.find_resource(resource)
+            self.find_resources(uri)
         } else {
             vec![]
         };
 
         // No resources to redirect to
         if resources.is_empty() {
-            trace!(
-                "fetch missing resource: {} redirect: {}",
-                resource,
-                redirect
-            );
+            trace!("fetch missing resource: {} redirect: {}", uri, redirect);
             return Box::new(future::err(Error::NotFound));
         }
 
         let reqs: Vec<FutureBody> = resources
             .into_iter()
-            .map(|res| self.fetch_remote_resource(res))
+            .map(|resource| resource.fetch(&self.uri))
             .collect();
 
         Box::new(future::select_ok(reqs).map(|(body, _)| body))
     }
 
-    pub fn store(&mut self, resource: String, value: Vec<u8>) -> Result<response::Empty, Error> {
-        if self.data.contains_key(&resource) {
-            trace!("duplicate resource: {}", resource);
-            return Ok(response::Empty {});
+    pub fn store(
+        &mut self,
+        uri: String,
+        value: Vec<u8>,
+    ) -> Box<Future<Item = response::Empty, Error = Error> + Send> {
+        if self.data.contains_key(&uri) {
+            trace!("duplicate resource: {}", uri);
+            return Box::new(future::ok(response::Empty {}));
         }
 
-        trace!("new resource: {}", resource);
-        self.data.insert(resource, value);
-        Ok(response::Empty {})
+        trace!("new resource: {}", uri);
+
+        let resources = self.find_resources(&uri);
+        self.data.insert(uri, value.clone());
+
+        let sender = self.uri.clone();
+
+        let remote = resources
+            .into_iter()
+            .map(move |resource| resource.store(&sender, &value));
+
+        Box::new(future::join_all(remote).and_then(|_| future::ok(response::Empty {})))
     }
 
     pub fn send_pings(&mut self) -> FuturePingVec {
@@ -272,7 +237,7 @@ impl Node {
         }
     }
 
-    fn find_resource(&self, resource: &str) -> Vec<Resource> {
+    fn find_resources(&self, resource: &str) -> Vec<Resource> {
         // TODO(indutny): LRU
         let mut resources: Vec<Resource> = self
             .peers
@@ -289,32 +254,5 @@ impl Node {
 
         resources.truncate(self.config.replicate as usize + 1);
         resources
-    }
-
-    fn fetch_remote_resource(&self, resource: Resource) -> FutureBody {
-        if resource.local {
-            return Box::new(future::err(Error::NotFound));
-        }
-
-        trace!("fetch remote resource: {}", resource.uri);
-        let request = hyper::Request::builder()
-            .method("GET")
-            .uri(resource.uri)
-            .header("x-naught-redirect", "false")
-            .body(hyper::Body::empty());
-
-        let request = match request {
-            Ok(request) => request,
-            Err(err) => {
-                return Box::new(future::err(Error::from(err)));
-            }
-        };
-
-        Box::new(
-            hyper::Client::new()
-                .request(request)
-                .from_err::<Error>()
-                .map(|res| res.into_body()),
-        )
     }
 }
