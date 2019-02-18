@@ -215,20 +215,26 @@ impl Node {
             }
         }));
 
-        let diff = HashSet::from_iter(new_peers.symmetric_difference(&self.last_peer_uris));
+        let has_diff = new_peers
+            .symmetric_difference(&self.last_peer_uris)
+            .next()
+            .map(|_| true)
+            .unwrap_or(false);
 
-        if diff.is_empty() {
+        if !has_diff {
             // No rebalancing needed
+            trace!("rebalance: no new/removed peers");
             return Box::new(future::ok(vec![]));
         }
 
+        trace!("rebalance: start");
         let union: Vec<&String> = new_peers.union(&self.last_peer_uris).collect();
 
         let remotes: Vec<FutureEmpty> = self
             .data
             .iter()
             .map(|(key, entry)| -> FutureEmpty {
-                let resources = self.find_rebalance_resources(key, now, &diff, &union);
+                let resources = self.find_rebalance_resources(key, &new_peers, &union);
 
                 let remote: Vec<FutureEmpty> = resources
                     .into_iter()
@@ -260,6 +266,10 @@ impl Node {
             sender: self.uri.clone(),
             peers: self.get_peer_uris(),
         }
+    }
+
+    fn construct_resource(&self, uri: &str) -> Resource {
+        Resource::new(format!("{}/{}", self.uri, uri), true, self.config.hash_seed)
     }
 
     fn send_single_ping(ping: String, uri: &str) -> FuturePing {
@@ -341,25 +351,32 @@ impl Node {
             .map(|peer| format!("{}/{}", peer.uri(), uri))
             .map(|uri| Resource::new(uri, false, self.config.hash_seed))
             .collect();
-        resources.push(Resource::new(
-            format!("{}/{}", self.uri, uri),
-            true,
-            self.config.hash_seed,
-        ));
+        resources.push(self.construct_resource(uri));
         resources.sort_unstable();
-
         resources.truncate(self.config.replicate as usize + 1);
+
         resources
     }
 
     // TODO(indutny): find new locations for the data
     fn find_rebalance_resources(
         &self,
-        _uri: &str,
-        _now: Instant,
-        _diff: &HashSet<&String>,
-        _union: &[&String],
+        uri: &str,
+        new_peers: &HashSet<String>,
+        union: &[&String],
     ) -> Vec<Resource> {
-        vec![]
+        let mut resources: Vec<Resource> = union
+            .iter()
+            .map(|peer_uri| format!("{}/{}", peer_uri, uri))
+            .map(|uri| Resource::new(uri, false, self.config.hash_seed))
+            .collect();
+        resources.push(self.construct_resource(uri));
+        resources.sort_unstable();
+        resources.truncate(self.config.replicate as usize + 1);
+
+        resources
+            .into_iter()
+            .filter(|resource| new_peers.contains(resource.uri()))
+            .collect()
     }
 }

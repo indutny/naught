@@ -39,13 +39,13 @@ impl Server {
             .serve(move || RPCService::new(serve_node.clone()))
             .from_err();
 
-        let interval_node = node.clone();
-        let interval = Interval::new(Instant::now(), self.config.ping_every.min)
+        let ping_node = node.clone();
+        let ping = Interval::new(Instant::now(), self.config.ping_every.min)
             .from_err::<Error>()
             .for_each(move |_| {
-                let ping_node = interval_node.clone();
+                let node = ping_node.clone();
 
-                interval_node
+                ping_node
                     .lock()
                     .expect("lock to acquire")
                     .send_pings()
@@ -54,8 +54,7 @@ impl Server {
                             .into_iter()
                             .filter_map(|ping| ping)
                             .for_each(move |ping| {
-                                ping_node
-                                    .lock()
+                                node.lock()
                                     .expect("lock to acquire")
                                     .recv_ping(&ping)
                                     // Ignore errors
@@ -66,9 +65,21 @@ impl Server {
                     })
             });
 
+        let rebalance_node = node.clone();
+        let rebalance = Interval::new(Instant::now(), self.config.rebalance_every)
+            .from_err::<Error>()
+            .for_each(move |_| {
+                rebalance_node
+                    .lock()
+                    .expect("lock to acquire")
+                    .rebalance()
+                    .map(|_| ())
+            });
+
         hyper::rt::run(
             server
-                .join(interval)
+                .join(ping)
+                .join(rebalance)
                 .map_err(|err: Error| {
                     eprintln!("Got error: {:#?}", err);
                 })
