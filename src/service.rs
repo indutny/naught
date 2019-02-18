@@ -130,7 +130,7 @@ impl hyper::service::Service for RPCService {
                             })
                             .and_then(|res| RPCService::stringify_value(&res))
                             .map(|body| Resource {
-                                status: StatusCode::OK,
+                                status: StatusCode::CREATED,
                                 body,
                                 raw: false,
                             }),

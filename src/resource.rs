@@ -152,7 +152,7 @@ impl Resource {
                         .request(store)
                         .from_err::<Error>()
                         .and_then(|response| {
-                            if response.status() == hyper::StatusCode::OK {
+                            if response.status() == hyper::StatusCode::CREATED {
                                 Ok(())
                             } else {
                                 Err(Error::StoreFailed)
