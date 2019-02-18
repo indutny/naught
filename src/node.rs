@@ -23,7 +23,6 @@ type FuturePing = Box<Future<Item = MaybePing, Error = Error> + Send>;
 type FutureBody = Box<Future<Item = hyper::Body, Error = Error> + Send>;
 type FutureURI = Box<Future<Item = Option<String>, Error = Error> + Send>;
 type FutureEmpty = Box<Future<Item = (), Error = Error> + Send>;
-type FutureChunk = Box<Future<Item = hyper::Chunk, Error = Error> + Send>;
 type FutureKeyVec = Box<Future<Item = Vec<String>, Error = Error> + Send>;
 
 struct DataEntry {
@@ -300,12 +299,13 @@ impl Node {
         let f = client
             .request(request)
             .from_err::<Error>()
-            .and_then(|response| -> FutureChunk {
-                if response.status().is_success() {
-                    Box::new(response.into_body().concat2().from_err())
+            .and_then(|response| {
+                let is_success = if response.status().is_success() {
+                    future::ok(())
                 } else {
-                    Box::new(future::err(Error::PingFailed))
-                }
+                    future::err(Error::PingFailed)
+                };
+                is_success.and_then(|_| response.into_body().concat2().from_err())
             })
             .and_then(|chunk| serde_json::from_slice::<common::Ping>(&chunk).map_err(Error::from))
             .and_then(|ping| future::ok(Some(ping)))
