@@ -27,8 +27,10 @@ impl Peer {
 
         // The rest are regular
         let stable_at = now + config.stable_delay;
-        let inactive_at = now + config.alive_timeout;
-        let remove_at = now + config.alive_timeout + config.remove_timeout;
+
+        // Until the peer pings - it should be treated as inactive
+        let inactive_at = now - config.ping_every.max;
+        let remove_at = now + config.remove_timeout;
 
         Self {
             config,
