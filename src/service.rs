@@ -112,9 +112,9 @@ impl hyper::service::Service for RPCService {
                         .lock()
                         .expect("lock to acquire")
                         .fetch(&resource[1..], redirect)
-                        .map(|body| Resource {
+                        .map(|response| Resource {
                             status: StatusCode::OK,
-                            body,
+                            body: response.body,
                             raw: true,
                         }),
                 ),

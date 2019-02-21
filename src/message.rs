@@ -1,5 +1,5 @@
+extern crate hyper;
 extern crate serde;
-extern crate tokio;
 
 pub mod common {
     use super::*;
@@ -41,5 +41,10 @@ pub mod response {
     #[derive(Serialize, Debug)]
     pub struct Store {
         pub uris: Vec<String>,
+    }
+
+    pub struct Fetch {
+        pub local: bool,
+        pub body: hyper::Body,
     }
 }

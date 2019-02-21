@@ -1,7 +1,6 @@
 extern crate futures;
 extern crate hyper;
 extern crate serde_json;
-extern crate tokio;
 
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
@@ -20,7 +19,7 @@ use crate::resource::Resource;
 type MaybePing = Option<common::Ping>;
 type FuturePingVec = Box<Future<Item = Vec<MaybePing>, Error = Error> + Send>;
 type FuturePing = Box<Future<Item = MaybePing, Error = Error> + Send>;
-type FutureBody = Box<Future<Item = hyper::Body, Error = Error> + Send>;
+type FutureFetch = Box<Future<Item = response::Fetch, Error = Error> + Send>;
 type FutureURI = Box<Future<Item = Option<String>, Error = Error> + Send>;
 type FutureKeyVec = Box<Future<Item = Vec<String>, Error = Error> + Send>;
 type FutureMaybeKey = Box<Future<Item = Option<String>, Error = Error> + Send>;
@@ -95,10 +94,13 @@ impl Node {
         }
     }
 
-    pub fn fetch(&self, uri: &str, redirect: bool) -> FutureBody {
+    pub fn fetch(&self, uri: &str, redirect: bool) -> FutureFetch {
         if let Some(entry) = self.data.get(uri) {
             trace!("fetch existing resource: {} redirect: {}", uri, redirect);
-            return Box::new(future::ok(hyper::Body::from(entry.value.clone())));
+            return Box::new(future::ok(response::Fetch {
+                local: true,
+                body: hyper::Body::from(entry.value.clone()),
+            }));
         }
 
         let resources = if redirect {
@@ -114,9 +116,15 @@ impl Node {
         }
 
         // TODO(indutny): store on miss, if has to be present locally
-        let reqs: Vec<FutureBody> = resources
+        let reqs: Vec<FutureFetch> = resources
             .into_iter()
-            .map(|resource| resource.fetch(&self.client, &self.uri))
+            .map(|resource| -> FutureFetch {
+                Box::new(
+                    resource
+                        .fetch(&self.client, &self.uri)
+                        .map(|body| response::Fetch { local: false, body }),
+                )
+            })
             .collect();
 
         Box::new(future::select_ok(reqs).map(|(body, _)| body))
