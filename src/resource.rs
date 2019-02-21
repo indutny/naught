@@ -7,11 +7,12 @@ use std::hash::Hasher;
 
 use futures::future;
 use futures::prelude::*;
+use hyper::{Body, Client, Request, Response};
 use siphasher::sip::SipHasher;
 
 use crate::error::Error;
 
-type FutureBody = Box<Future<Item = hyper::Body, Error = Error> + Send>;
+type FutureBody = Box<Future<Item = Body, Error = Error> + Send>;
 
 #[derive(Eq, Debug)]
 pub struct Resource {
@@ -69,12 +70,12 @@ impl Resource {
         }
 
         trace!("fetch remote resource: {}", self.uri);
-        let request = hyper::Request::builder()
+        let request = Request::builder()
             .method("GET")
             .uri(self.uri.to_string())
             .header("x-naught-sender", sender.to_string())
             .header("x-naught-redirect", "false")
-            .body(hyper::Body::empty());
+            .body(Body::empty());
 
         let request = match request {
             Ok(request) => request,
@@ -85,7 +86,7 @@ impl Resource {
 
         // TODO(indutny): timeout
         Box::new(
-            hyper::Client::new()
+            Client::new()
                 .request(request)
                 .from_err::<Error>()
                 .and_then(|response| {
@@ -109,20 +110,20 @@ impl Resource {
             return Box::new(future::ok(()));
         }
 
-        let peek = hyper::Request::builder()
+        let peek = Request::builder()
             .method("HEAD")
             .uri(self.uri.to_string())
             .header("x-naught-sender", sender.to_string())
             .header("x-naught-redirect", "false")
-            .body(hyper::Body::empty());
+            .body(Body::empty());
 
         trace!("store remote resource: {}", self.uri);
-        let store = hyper::Request::builder()
+        let store = Request::builder()
             .method("PUT")
             .uri(self.uri.to_string())
             .header("x-naught-sender", sender.to_string())
             .header("x-naught-redirect", "false")
-            .body(hyper::Body::from(value.to_vec()));
+            .body(Body::from(value.to_vec()));
 
         let peek = match peek {
             Ok(peek) => peek,
@@ -138,31 +139,37 @@ impl Resource {
             }
         };
 
+        let peek = Client::new()
+            .request(peek)
+            .from_err::<Error>()
+            .and_then(|response| {
+                if response.status().is_success() {
+                    Ok(())
+                } else {
+                    Err(Error::NotFound)
+                }
+            });
+
+        // TODO(indutny): excessive cloning?
+        let debug_uri = self.uri.to_string();
+
+        let on_store_response = move |response: Response<Body>| {
+            if response.status().is_success() {
+                Ok(())
+            } else {
+                Err(Error::StoreFailed(debug_uri))
+            }
+        };
+
+        let peek_or_store = peek.or_else(move |_| {
+            Client::new()
+                .request(store)
+                .from_err::<Error>()
+                .and_then(on_store_response)
+        });
+
         // TODO(indutny): timeout
         // TODO(indutny): retry?
-        Box::new(
-            hyper::Client::new()
-                .request(peek)
-                .from_err::<Error>()
-                .and_then(|response| {
-                    if response.status().is_success() {
-                        Ok(())
-                    } else {
-                        Err(Error::NotFound)
-                    }
-                })
-                .or_else(|_| {
-                    hyper::Client::new()
-                        .request(store)
-                        .from_err::<Error>()
-                        .and_then(|response| {
-                            if response.status().is_success() {
-                                Ok(())
-                            } else {
-                                Err(Error::StoreFailed)
-                            }
-                        })
-                }),
-        )
+        Box::new(peek_or_store)
     }
 }
