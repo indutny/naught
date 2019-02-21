@@ -120,13 +120,13 @@ impl Node {
         }
 
         // Store locally on miss
-        let store: bool = resources.iter().any(|resource| resource.is_local());
+        let store = resources.iter().any(|resource| resource.is_local());
 
         // Shuffle resources to balance requests fairly
         let mut rng = thread_rng();
         resources.shuffle(&mut rng);
 
-        let reqs: FutureFetch =
+        let response: FutureFetch =
             resources
                 .into_iter()
                 .zip(std::iter::repeat(store))
@@ -144,7 +144,7 @@ impl Node {
                     Box::new(acc.or_else(move |_| f))
                 });
 
-        Box::new(reqs)
+        Box::new(response)
     }
 
     pub fn after_fetch(&mut self, _uri: &str, fetch: response::Fetch) -> FutureFetch {
