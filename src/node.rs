@@ -102,7 +102,6 @@ impl Node {
             trace!("fetch existing resource: {} redirect: {}", uri, redirect);
             return Box::new(future::ok(response::Fetch {
                 peer: self.uri.to_string(),
-                store: false,
                 body: hyper::Body::from(entry.value.clone()),
             }));
         }
@@ -119,9 +118,6 @@ impl Node {
             return Box::new(future::err(Error::NotFound));
         }
 
-        // Store locally on miss
-        let store = resources.iter().any(|resource| resource.is_local());
-
         // Shuffle resources to balance requests fairly
         let mut rng = thread_rng();
         resources.shuffle(&mut rng);
@@ -129,13 +125,11 @@ impl Node {
         let response: FutureFetch =
             resources
                 .into_iter()
-                .zip(std::iter::repeat(store))
-                .map(|(resource, store)| -> FutureFetch {
+                .map(|resource| -> FutureFetch {
                     let peer_uri = resource.peer_uri().to_string();
                     Box::new(resource.fetch(&self.client, &self.uri).map(move |body| {
                         response::Fetch {
                             peer: peer_uri,
-                            store,
                             body,
                         }
                     }))
@@ -145,11 +139,6 @@ impl Node {
                 });
 
         Box::new(response)
-    }
-
-    pub fn after_fetch(&mut self, _uri: &str, fetch: response::Fetch) -> FutureFetch {
-        // TODO(indutny): store here on miss
-        Box::new(future::ok(fetch))
     }
 
     pub fn store(
