@@ -1,5 +1,6 @@
 extern crate futures;
 extern crate hyper;
+extern crate rand;
 extern crate serde_json;
 
 use std::collections::{HashMap, HashSet};
@@ -9,6 +10,8 @@ use std::time::Instant;
 
 use futures::future;
 use futures::prelude::*;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 
 use crate::config::Config;
 use crate::error::Error;
@@ -104,7 +107,7 @@ impl Node {
             }));
         }
 
-        let resources = if redirect {
+        let mut resources = if redirect {
             self.find_resources(uri)
         } else {
             vec![]
@@ -119,7 +122,11 @@ impl Node {
         // Store locally on miss
         let store: bool = resources.iter().any(|resource| resource.is_local());
 
-        let reqs: Vec<FutureFetch> =
+        // Shuffle resources to balance requests fairly
+        let mut rng = thread_rng();
+        resources.shuffle(&mut rng);
+
+        let reqs: FutureFetch =
             resources
                 .into_iter()
                 .zip(std::iter::repeat(store))
@@ -133,12 +140,15 @@ impl Node {
                         }
                     }))
                 })
-                .collect();
+                .fold(Box::new(future::err(Error::Unreachable)), |acc, f| {
+                    Box::new(acc.or_else(move |_| f))
+                });
 
-        Box::new(future::select_ok(reqs).map(|(body, _)| body))
+        Box::new(reqs)
     }
 
     pub fn after_fetch(&mut self, _uri: &str, fetch: response::Fetch) -> FutureFetch {
+        // TODO(indutny): store here on miss
         Box::new(future::ok(fetch))
     }
 
