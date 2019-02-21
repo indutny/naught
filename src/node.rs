@@ -40,6 +40,9 @@ pub struct Node {
     last_peers: HashMap<String, Peer>,
     // Their uris
     last_peer_uris: HashSet<String>,
+
+    // Shared client with connection pool
+    client: hyper::Client<hyper::client::HttpConnector>,
 }
 
 impl Node {
@@ -54,6 +57,8 @@ impl Node {
 
             last_peers: HashMap::new(),
             last_peer_uris: HashSet::new(),
+
+            client: hyper::Client::new(),
         }
     }
 
@@ -106,7 +111,7 @@ impl Node {
 
         let reqs: Vec<FutureBody> = resources
             .into_iter()
-            .map(|resource| resource.fetch(&self.uri))
+            .map(|resource| resource.fetch(&self.client, &self.uri))
             .collect();
 
         Box::new(future::select_ok(reqs).map(|(body, _)| body))
@@ -326,10 +331,9 @@ impl Node {
             }
         };
 
-        let client = hyper::Client::new();
-
         // TODO(indutny): timeout
-        let f = client
+        let f = self
+            .client
             .request(request)
             .from_err::<Error>()
             .and_then(|response| {

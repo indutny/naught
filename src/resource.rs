@@ -7,7 +7,7 @@ use std::hash::Hasher;
 
 use futures::future;
 use futures::prelude::*;
-use hyper::{Body, Client, Method, Request, Response};
+use hyper::{client, Body, Client, Method, Request, Response};
 use siphasher::sip::SipHasher;
 
 use crate::error::Error;
@@ -68,7 +68,7 @@ impl Resource {
         self.local
     }
 
-    pub fn fetch(&self, sender: &str) -> FutureBody {
+    pub fn fetch(&self, client: &Client<client::HttpConnector>, sender: &str) -> FutureBody {
         if self.local {
             return Box::new(future::err(Error::NotFound));
         }
@@ -90,7 +90,7 @@ impl Resource {
 
         // TODO(indutny): timeout
         Box::new(
-            Client::new()
+            client
                 .request(request)
                 .from_err::<Error>()
                 .and_then(|response| {
