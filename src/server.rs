@@ -41,9 +41,11 @@ impl Server {
         let node = Arc::new(Mutex::new(node));
 
         let serve_node = node.clone();
-        let server = builder
-            .serve(move || RPCService::new(serve_node.clone()))
-            .from_err();
+        let server = builder.serve(move || RPCService::new(serve_node.clone()));
+
+        node.lock()
+            .expect("lock to acquire")
+            .set_local_addr(server.local_addr());
 
         let ping_node = node.clone();
         let ping = Interval::new(Instant::now(), self.config.ping_every.min)
@@ -89,6 +91,8 @@ impl Server {
                     })
             });
 
-        Box::new(server.join(ping).join(rebalance).map(|_| ()))
+        trace!("Listening on {:?}", server.local_addr());
+
+        Box::new(server.from_err().join(ping).join(rebalance).map(|_| ()))
     }
 }

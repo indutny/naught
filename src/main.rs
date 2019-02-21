@@ -22,7 +22,7 @@ fn main() {
             Arg::with_name("port")
                 .short("p")
                 .help("Sets a port to listen on")
-                .default_value("8000"),
+                .default_value("0"),
         )
         .arg(
             Arg::with_name("host")

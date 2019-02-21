@@ -46,8 +46,8 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(addr: SocketAddr, config: Config) -> Node {
-        let uri = format!("http://{}", addr);
+    pub fn new(bind_addr: SocketAddr, config: Config) -> Node {
+        let uri = format!("http://{}", bind_addr);
 
         Node {
             config,
@@ -60,6 +60,10 @@ impl Node {
 
             client: hyper::Client::new(),
         }
+    }
+
+    pub fn set_local_addr(&mut self, local_addr: SocketAddr) {
+        self.uri = format!("http://{}", local_addr);
     }
 
     // RPC below
