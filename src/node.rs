@@ -117,13 +117,11 @@ impl Node {
         uri: String,
         value: Vec<u8>,
         redirect: bool,
-    ) -> Box<Future<Item = response::Ok, Error = Error> + Send> {
+    ) -> Box<Future<Item = response::Store, Error = Error> + Send> {
         if self.data.contains_key(&uri) {
             trace!("duplicate resource: {}", uri);
-            return Box::new(future::ok(response::Ok { ok: true }));
+            return Box::new(future::ok(response::Store { uris: vec![] }));
         }
-
-        trace!("new resource: {}", uri);
 
         // Store only locally when redirect is `false`
         let resources: Vec<Resource> = self
@@ -134,8 +132,11 @@ impl Node {
 
         // Nowhere to store, notify caller
         if resources.is_empty() {
+            trace!("no resources for object: {}", uri);
             return Box::new(future::err(Error::NonLocalStore(uri.to_string())));
         }
+
+        trace!("new object: {}", uri);
 
         let remote: Vec<FutureURI> = resources
             .into_iter()
@@ -157,7 +158,9 @@ impl Node {
 
         let uris = future::join_all(remote).and_then(|target_uris| {
             trace!("stored resource remotely at: {:?}", target_uris);
-            future::ok(response::Ok { ok: true })
+            future::ok(response::Store {
+                uris: target_uris.into_iter().filter_map(|uri| uri).collect(),
+            })
         });
 
         self.data.insert(uri, DataEntry { value });

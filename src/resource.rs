@@ -43,10 +43,14 @@ impl PartialEq for Resource {
 impl Resource {
     pub fn new(peer_uri: &str, uri: &str, local: bool, hash_seed: (u64, u64)) -> Resource {
         let mut hasher = SipHasher::new_with_keys(hash_seed.0, hash_seed.1);
+
+        let peer_uri = peer_uri.to_string();
+        let uri = format!("{}/{}", peer_uri, uri);
+
         hasher.write(uri.as_bytes());
         Resource {
-            peer_uri: peer_uri.to_string(),
-            uri: format!("{}/{}", peer_uri, uri),
+            peer_uri,
+            uri,
             local,
             hash: hasher.finish(),
         }

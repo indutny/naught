@@ -39,7 +39,7 @@ pub mod response {
     }
 
     #[derive(Serialize, Debug)]
-    pub struct Ok {
-        pub ok: bool,
+    pub struct Store {
+        pub uris: Vec<String>,
     }
 }

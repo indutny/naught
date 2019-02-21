@@ -21,7 +21,11 @@ pub struct Peer {
 impl Peer {
     pub fn new(uri: String, config: Config) -> Self {
         let now = Instant::now();
-        let ping_at = now + Peer::ping_delay(&config);
+
+        // Initial ping at should be immediate
+        let ping_at = now;
+
+        // The rest are regular
         let stable_at = now + config.stable_delay;
         let inactive_at = now + config.alive_timeout;
         let remove_at = now + config.alive_timeout + config.remove_timeout;
