@@ -150,7 +150,7 @@ impl Node {
                 let target_uri = resource.uri().to_string();
 
                 let store = resource
-                    .store(&self.uri, &value)
+                    .store(&self.client, &self.uri, &value)
                     .map(move |_| Some(target_uri))
                     .or_else(|err| {
                         // Single failed store should not fail others
@@ -263,7 +263,7 @@ impl Node {
                     .map(|resource| -> FutureBool {
                         Box::new(
                             resource
-                                .store(&self.uri, &entry.value)
+                                .store(&self.client, &self.uri, &entry.value)
                                 .map(|_| true)
                                 .or_else(|err| {
                                     // Single failed rebalance should not fail others

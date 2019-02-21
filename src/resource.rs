@@ -106,6 +106,7 @@ impl Resource {
 
     pub fn store(
         &self,
+        client: &Client<client::HttpConnector>,
         sender: &str,
         value: &[u8],
     ) -> Box<Future<Item = (), Error = Error> + Send> {
@@ -143,7 +144,7 @@ impl Resource {
             }
         };
 
-        let peek = Client::new()
+        let peek = client
             .request(peek)
             .from_err::<Error>()
             .and_then(|response| {
@@ -165,12 +166,12 @@ impl Resource {
             }
         };
 
-        let peek_or_store = peek.or_else(move |_| {
-            Client::new()
-                .request(store)
-                .from_err::<Error>()
-                .and_then(on_store_response)
-        });
+        let store = client
+            .request(store)
+            .from_err::<Error>()
+            .and_then(on_store_response);
+
+        let peek_or_store = peek.or_else(move |_| store);
 
         // TODO(indutny): timeout
         // TODO(indutny): retry?
