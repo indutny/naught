@@ -113,6 +113,7 @@ impl Node {
             return Box::new(future::err(Error::NotFound));
         }
 
+        // TODO(indutny): store on miss, if has to be present locally
         let reqs: Vec<FutureBody> = resources
             .into_iter()
             .map(|resource| resource.fetch(&self.client, &self.uri))
