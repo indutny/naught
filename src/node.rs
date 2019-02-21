@@ -204,14 +204,17 @@ impl Node {
             }
         };
 
-        let pings = uris.into_iter().map(move |uri| {
-            Node::send_single_ping(ping.to_string(), &uri).or_else(move |err| {
-                // Single failed ping should not prevent other pings
-                // from happening
-                trace!("ping to {} failed due to error: {:?}", uri, err);
-                future::ok(None)
+        let pings: Vec<FuturePing> = uris
+            .into_iter()
+            .map(|uri| -> FuturePing {
+                Box::new(self.send_single_ping(&ping, &uri).or_else(move |err| {
+                    // Single failed ping should not prevent other pings
+                    // from happening
+                    trace!("ping to {} failed due to error: {:?}", uri, err);
+                    future::ok(None)
+                }))
             })
-        });
+            .collect();
         Box::new(future::join_all(pings))
     }
 
@@ -307,14 +310,14 @@ impl Node {
         Resource::new(&self.uri, uri, true, self.config.hash_seed)
     }
 
-    fn send_single_ping(ping: String, uri: &str) -> FuturePing {
+    fn send_single_ping(&self, ping: &str, uri: &str) -> FuturePing {
         let uri = format!("{}/_ping", uri);
 
         let request = hyper::Request::builder()
             .method(hyper::Method::POST)
             .uri(uri)
             .header(hyper::header::CONTENT_TYPE, "application/json")
-            .body(hyper::Body::from(ping));
+            .body(hyper::Body::from(ping.to_string()));
 
         let request = match request {
             Ok(request) => request,
