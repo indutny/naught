@@ -42,12 +42,12 @@ impl Config {
             initial_peers: vec![],
             ping_every: PingEvery {
                 min: Duration::from_secs(1),
-                max: Duration::from_secs(5),
+                max: Duration::from_secs(3),
             },
-            alive_timeout: Duration::from_secs(15),
-            remove_timeout: Duration::from_secs(15),
-            stable_delay: Duration::from_secs(10),
-            rebalance_every: Duration::from_secs(10),
+            alive_timeout: Duration::from_secs(6),
+            remove_timeout: Duration::from_secs(30),
+            stable_delay: Duration::from_secs(12),
+            rebalance_every: Duration::from_secs(12),
         }
     }
 }
