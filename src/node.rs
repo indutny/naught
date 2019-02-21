@@ -99,6 +99,7 @@ impl Node {
             trace!("fetch existing resource: {} redirect: {}", uri, redirect);
             return Box::new(future::ok(response::Fetch {
                 peer: self.uri.to_string(),
+                store: false,
                 body: hyper::Body::from(entry.value.clone()),
             }));
         }
@@ -115,39 +116,46 @@ impl Node {
             return Box::new(future::err(Error::NotFound));
         }
 
-        // TODO(indutny): store on miss, if has to be present locally
-        let reqs: Vec<FutureFetch> = resources
-            .into_iter()
-            .map(|resource| -> FutureFetch {
-                let peer_uri = resource.peer_uri().to_string();
-                Box::new(
-                    resource
-                        .fetch(&self.client, &self.uri)
-                        .map(|body| response::Fetch {
+        // Store locally on miss
+        let store: bool = resources.iter().any(|resource| resource.is_local());
+
+        let reqs: Vec<FutureFetch> =
+            resources
+                .into_iter()
+                .zip(std::iter::repeat(store))
+                .map(|(resource, store)| -> FutureFetch {
+                    let peer_uri = resource.peer_uri().to_string();
+                    Box::new(resource.fetch(&self.client, &self.uri).map(move |body| {
+                        response::Fetch {
                             peer: peer_uri,
+                            store,
                             body,
-                        }),
-                )
-            })
-            .collect();
+                        }
+                    }))
+                })
+                .collect();
 
         Box::new(future::select_ok(reqs).map(|(body, _)| body))
     }
 
+    pub fn after_fetch(&mut self, _uri: &str, fetch: response::Fetch) -> FutureFetch {
+        Box::new(future::ok(fetch))
+    }
+
     pub fn store(
         &mut self,
-        uri: String,
+        uri: &str,
         value: Vec<u8>,
         redirect: bool,
     ) -> Box<Future<Item = response::Store, Error = Error> + Send> {
-        if self.data.contains_key(&uri) {
+        if self.data.contains_key(uri) {
             trace!("duplicate resource: {}", uri);
             return Box::new(future::ok(response::Store { uris: vec![] }));
         }
 
         // Store only locally when redirect is `false`
         let resources: Vec<Resource> = self
-            .find_resources(&uri)
+            .find_resources(uri)
             .into_iter()
             .filter(|resource| redirect || resource.is_local())
             .collect();
@@ -185,7 +193,7 @@ impl Node {
             })
         });
 
-        self.data.insert(uri, DataEntry { value });
+        self.data.insert(uri.to_string(), DataEntry { value });
 
         Box::new(uris)
     }

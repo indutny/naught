@@ -111,18 +111,28 @@ impl hyper::service::Service for RPCService {
                         raw: false,
                     }),
                 ),
-                (Method::GET, resource) => Box::new(
-                    self.node
-                        .lock()
-                        .expect("lock to acquire")
-                        .fetch(&resource[1..], redirect)
-                        .map(|response| Resource {
-                            status: StatusCode::OK,
-                            sender: Some(response.peer),
-                            body: response.body,
-                            raw: true,
-                        }),
-                ),
+                (Method::GET, resource) => {
+                    let node = self.node.clone();
+                    let resource = resource[1..].to_string();
+
+                    Box::new(
+                        self.node
+                            .lock()
+                            .expect("lock to acquire")
+                            .fetch(&resource, redirect)
+                            .and_then(move |response| {
+                                node.lock()
+                                    .expect("lock to acquire")
+                                    .after_fetch(&resource, response)
+                            })
+                            .map(|response| Resource {
+                                status: StatusCode::OK,
+                                sender: Some(response.peer),
+                                body: response.body,
+                                raw: true,
+                            }),
+                    )
+                }
                 (Method::PUT, resource) => {
                     let node = self.node.clone();
                     let resource = resource[1..].to_string();
@@ -131,7 +141,7 @@ impl hyper::service::Service for RPCService {
                             .and_then(move |value| {
                                 node.lock()
                                     .expect("lock to acquire")
-                                    .store(resource, value, redirect)
+                                    .store(&resource, value, redirect)
                             })
                             .and_then(|res| RPCService::stringify_value(&res))
                             .map(|body| Resource {
