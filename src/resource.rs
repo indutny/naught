@@ -59,6 +59,10 @@ impl Resource {
         &self.uri
     }
 
+    pub fn is_local(&self) -> bool {
+        self.local
+    }
+
     pub fn fetch(&self, sender: &str) -> FutureBody {
         if self.local {
             return Box::new(future::err(Error::NotFound));

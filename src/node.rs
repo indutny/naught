@@ -22,8 +22,9 @@ type FuturePingVec = Box<Future<Item = Vec<MaybePing>, Error = Error> + Send>;
 type FuturePing = Box<Future<Item = MaybePing, Error = Error> + Send>;
 type FutureBody = Box<Future<Item = hyper::Body, Error = Error> + Send>;
 type FutureURI = Box<Future<Item = Option<String>, Error = Error> + Send>;
-type FutureEmpty = Box<Future<Item = (), Error = Error> + Send>;
 type FutureKeyVec = Box<Future<Item = Vec<String>, Error = Error> + Send>;
+type FutureMaybeKey = Box<Future<Item = Option<String>, Error = Error> + Send>;
+type FutureBool = Box<Future<Item = bool, Error = Error> + Send>;
 
 struct DataEntry {
     value: Vec<u8>,
@@ -223,7 +224,6 @@ impl Node {
 
         if added_peers.is_empty() && removed_peers.is_empty() {
             // No rebalancing needed
-            trace!("rebalance: no new/removed peers");
             return Box::new(future::ok(vec![]));
         }
 
@@ -234,34 +234,57 @@ impl Node {
         );
         let union: Vec<&String> = new_peers.union(&self.last_peer_uris).collect();
 
-        let remotes: Vec<FutureEmpty> = self
+        let obsolete_keys: Vec<FutureMaybeKey> = self
             .data
             .iter()
-            .map(|(key, entry)| -> FutureEmpty {
+            .map(|(key, entry)| -> FutureMaybeKey {
                 let resources =
                     self.find_rebalance_resources(key, &union, &removed_peers, &added_peers);
 
-                let remote: Vec<FutureEmpty> = resources
+                let keep_local = resources.iter().any(|resource| resource.is_local());
+
+                let successes: Vec<FutureBool> = resources
                     .into_iter()
-                    .map(|resource| -> FutureEmpty {
-                        Box::new(resource.store(&self.uri, &entry.value).or_else(|err| {
-                            // Single failed rebalance should not fail others
-                            error!("remote rebalance failed due to error: {:?}", err);
-                            future::ok(())
-                        }))
+                    .map(|resource| -> FutureBool {
+                        Box::new(
+                            resource
+                                .store(&self.uri, &entry.value)
+                                .map(|_| true)
+                                .or_else(|err| {
+                                    // Single failed rebalance should not fail others
+                                    error!("remote rebalance failed due to error: {:?}", err);
+                                    future::ok(false)
+                                }),
+                        )
                     })
                     .collect();
 
-                // TODO(indutny): delete local key on success
-                // XXX(indutny): this is very important
-                Box::new(future::join_all(remote).map(|_| ()))
+                let key = key.clone();
+
+                Box::new(future::join_all(successes).and_then(move |successes| {
+                    if !keep_local && successes.into_iter().any(|v| v) {
+                        future::ok(Some(key))
+                    } else {
+                        future::ok(None)
+                    }
+                }))
             })
             .collect();
 
         self.last_peer_uris = new_peers;
         self.last_peers = self.peers.clone();
 
-        Box::new(future::join_all(remotes).map(|_| vec![]))
+        Box::new(
+            future::join_all(obsolete_keys)
+                .map(|keys| keys.into_iter().filter_map(|key| key).collect()),
+        )
+    }
+
+    pub fn remove(&mut self, keys: Vec<String>) {
+        for key in keys {
+            trace!("remove key: {}", key);
+            self.data.remove(&key);
+        }
     }
 
     // Internal methods
@@ -384,7 +407,7 @@ impl Node {
 
         resources
             .into_iter()
-            .filter(|resource| added_peers.contains(resource.peer_uri()))
+            .filter(|resource| resource.is_local() || added_peers.contains(resource.peer_uri()))
             .collect()
     }
 }

@@ -69,11 +69,18 @@ impl Server {
         let rebalance = Interval::new(Instant::now(), self.config.rebalance_every)
             .from_err::<Error>()
             .for_each(move |_| {
+                let remove_keys_node = rebalance_node.clone();
+
                 rebalance_node
                     .lock()
                     .expect("lock to acquire")
                     .rebalance()
-                    .map(|_| ())
+                    .map(move |obsolete_keys| {
+                        remove_keys_node
+                            .lock()
+                            .expect("lock to acquire")
+                            .remove(obsolete_keys);
+                    })
             });
 
         hyper::rt::run(
