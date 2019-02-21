@@ -44,6 +44,7 @@ impl RPCService {
 
 struct Resource {
     status: StatusCode,
+    sender: Option<String>,
     body: Body,
     raw: bool,
 }
@@ -74,6 +75,7 @@ impl hyper::service::Service for RPCService {
                         .and_then(|info| RPCService::stringify_value(&info))
                         .map(|body| Resource {
                             status: StatusCode::OK,
+                            sender: None,
                             body,
                             raw: false,
                         }),
@@ -88,6 +90,7 @@ impl hyper::service::Service for RPCService {
                             .and_then(|res| RPCService::stringify_value(&res))
                             .map(|body| Resource {
                                 status: StatusCode::OK,
+                                sender: None,
                                 body,
                                 raw: false,
                             }),
@@ -103,6 +106,7 @@ impl hyper::service::Service for RPCService {
                     .and_then(|res| RPCService::stringify_value(&res))
                     .map(|body| Resource {
                         status: StatusCode::OK,
+                        sender: None,
                         body,
                         raw: false,
                     }),
@@ -114,6 +118,7 @@ impl hyper::service::Service for RPCService {
                         .fetch(&resource[1..], redirect)
                         .map(|response| Resource {
                             status: StatusCode::OK,
+                            sender: Some(response.peer),
                             body: response.body,
                             raw: true,
                         }),
@@ -131,6 +136,7 @@ impl hyper::service::Service for RPCService {
                             .and_then(|res| RPCService::stringify_value(&res))
                             .map(|body| Resource {
                                 status: StatusCode::CREATED,
+                                sender: None,
                                 body,
                                 raw: false,
                             }),
@@ -152,6 +158,7 @@ impl hyper::service::Service for RPCService {
                         .unwrap_or_else(|_| "{\"error\":\"unknown error\"}".to_string());
                     Ok(Resource {
                         status,
+                        sender: None,
                         body: Body::from(json),
                         raw: false,
                     })
@@ -159,7 +166,10 @@ impl hyper::service::Service for RPCService {
                 .and_then(move |resource| {
                     res.status(resource.status);
                     if !resource.raw {
-                        res.header("content-type", "application/json");
+                        res.header(hyper::header::CONTENT_TYPE, "application/json");
+                    }
+                    if let Some(sender) = resource.sender {
+                        res.header("x-naught-sender", sender);
                     }
                     res.body(resource.body).into_future().from_err()
                 }),

@@ -98,7 +98,7 @@ impl Node {
         if let Some(entry) = self.data.get(uri) {
             trace!("fetch existing resource: {} redirect: {}", uri, redirect);
             return Box::new(future::ok(response::Fetch {
-                local: true,
+                peer: self.uri.to_string(),
                 body: hyper::Body::from(entry.value.clone()),
             }));
         }
@@ -119,10 +119,14 @@ impl Node {
         let reqs: Vec<FutureFetch> = resources
             .into_iter()
             .map(|resource| -> FutureFetch {
+                let peer_uri = resource.peer_uri().to_string();
                 Box::new(
                     resource
                         .fetch(&self.client, &self.uri)
-                        .map(|body| response::Fetch { local: false, body }),
+                        .map(|body| response::Fetch {
+                            peer: peer_uri,
+                            body,
+                        }),
                 )
             })
             .collect();
