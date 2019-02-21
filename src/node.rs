@@ -136,7 +136,7 @@ impl Node {
 
         // Nowhere to store, notify caller
         if resources.is_empty() {
-            return Box::new(future::err(Error::NonLocalStore));
+            return Box::new(future::err(Error::NonLocalStore(uri.to_string())));
         }
 
         let remote: Vec<FutureURI> = resources

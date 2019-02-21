@@ -17,7 +17,7 @@ pub enum Error {
     StoreFailed,
     PingFailed,
     BadRequest,
-    NonLocalStore,
+    NonLocalStore(String),
     Unreachable,
     JSON(String),
 }
@@ -40,7 +40,7 @@ impl fmt::Display for Error {
             Error::StoreFailed => write!(f, "Resource store failed"),
             Error::PingFailed => write!(f, "Remote ping failed"),
             Error::BadRequest => write!(f, "Unsupported request method or uri"),
-            Error::NonLocalStore => write!(f, "Cannot store object locally"),
+            Error::NonLocalStore(s) => write!(f, "Cannot store {} locally", s),
             Error::JSON(s) => write!(f, "JSON Error: {}", s),
         }
     }
