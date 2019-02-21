@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use futures::future;
 use futures::prelude::*;
+use hyper::service::make_service_fn;
 use tokio::timer::Interval;
 
 use crate::config::Config;
@@ -41,7 +42,9 @@ impl Server {
         let node = Arc::new(Mutex::new(node));
 
         let serve_node = node.clone();
-        let server = builder.serve(move || RPCService::new(serve_node.clone()));
+        let server = builder.serve(make_service_fn(move |stream| {
+            RPCService::new(stream, serve_node.clone())
+        }));
 
         node.lock()
             .expect("lock to acquire")

@@ -1,11 +1,13 @@
 extern crate futures;
 extern crate serde_json;
 
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use futures::future::{self, FutureResult};
 use futures::prelude::*;
 use futures::IntoFuture;
+use hyper::server::conn::AddrStream;
 use hyper::{Body, Method, Request, Response, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -16,11 +18,13 @@ use crate::node::Node;
 
 pub struct RPCService {
     node: Arc<Mutex<Node>>,
+    remote_addr: SocketAddr,
 }
 
 impl RPCService {
-    pub fn new(node: Arc<Mutex<Node>>) -> RPCService {
-        RPCService { node }
+    pub fn new(stream: &AddrStream, node: Arc<Mutex<Node>>) -> RPCService {
+        let remote_addr = stream.remote_addr();
+        RPCService { node, remote_addr }
     }
 
     fn fetch_json<T: DeserializeOwned>(body: Body) -> impl Future<Item = T, Error = Error> {
@@ -80,10 +84,14 @@ impl hyper::service::Service for RPCService {
                 ),
                 (Method::POST, "/_ping") => {
                     let node = self.node.clone();
+                    let remote_addr = self.remote_addr;
+
                     Box::new(
                         RPCService::fetch_json(body)
                             .and_then(move |ping| {
-                                node.lock().expect("lock to acquire").recv_ping(&ping)
+                                node.lock()
+                                    .expect("lock to acquire")
+                                    .recv_remote_ping(&remote_addr, &ping)
                             })
                             .and_then(|res| RPCService::stringify_value(&res))
                             .map(|body| Resource {

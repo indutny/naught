@@ -85,6 +85,16 @@ impl Node {
         Ok(self.construct_ping())
     }
 
+    pub fn recv_remote_ping(
+        &mut self,
+        _remote_addr: &SocketAddr,
+        msg: &common::Ping,
+    ) -> Result<common::Ping, Error> {
+        self.on_ping(&msg.sender, &msg.peers);
+
+        Ok(self.construct_ping())
+    }
+
     pub fn peek(&self, uri: &str) -> Result<(), Error> {
         if self.data.contains_key(uri) {
             trace!("peek existing resource: {}", uri);
