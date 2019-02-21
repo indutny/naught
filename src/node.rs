@@ -348,8 +348,6 @@ impl Node {
             return;
         }
 
-        trace!("received ping from: {}", sender);
-
         self.add_peer(&sender);
         for peer_uri in peers {
             self.add_peer(&peer_uri);
