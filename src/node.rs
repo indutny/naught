@@ -93,8 +93,7 @@ impl Node {
         }
 
         let resources = if redirect {
-            let now = Instant::now();
-            self.find_resources(uri, now)
+            self.find_resources(uri)
         } else {
             vec![]
         };
@@ -127,9 +126,8 @@ impl Node {
         trace!("new resource: {}", uri);
 
         // Store only locally when redirect is `false`
-        let now = Instant::now();
         let resources: Vec<Resource> = self
-            .find_resources(&uri, now)
+            .find_resources(&uri)
             .into_iter()
             .filter(|resource| redirect || resource.is_local())
             .collect();
@@ -375,12 +373,11 @@ impl Node {
         }
     }
 
-    fn find_resources(&self, uri: &str, now: Instant) -> Vec<Resource> {
+    fn find_resources(&self, uri: &str) -> Vec<Resource> {
         // TODO(indutny): LRU
         let mut resources: Vec<Resource> = self
             .peers
             .values()
-            .filter(|peer| peer.stable_at() <= now)
             .map(|peer| Resource::new(peer.uri(), uri, false, self.config.hash_seed))
             .collect();
         resources.push(self.construct_resource(uri));
