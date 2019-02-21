@@ -45,7 +45,7 @@ impl Config {
                 max: Duration::from_secs(3),
             },
             alive_timeout: Duration::from_secs(6),
-            remove_timeout: Duration::from_secs(30),
+            remove_timeout: Duration::from_secs(300),
             stable_delay: Duration::from_secs(12),
             rebalance_every: Duration::from_secs(12),
         }
