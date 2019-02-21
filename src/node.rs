@@ -126,12 +126,18 @@ impl Node {
 
         trace!("new resource: {}", uri);
 
-        let resources = if redirect {
-            let now = Instant::now();
-            self.find_resources(&uri, now)
-        } else {
-            vec![]
-        };
+        // Store only locally when redirect is `false`
+        let now = Instant::now();
+        let resources: Vec<Resource> = self
+            .find_resources(&uri, now)
+            .into_iter()
+            .filter(|resource| redirect || resource.is_local())
+            .collect();
+
+        // Nowhere to store, notify caller
+        if resources.is_empty() {
+            return Box::new(future::err(Error::NonLocalStore));
+        }
 
         let remote: Vec<FutureURI> = resources
             .into_iter()
@@ -304,7 +310,7 @@ impl Node {
         let uri = format!("{}/_ping", uri);
 
         let request = hyper::Request::builder()
-            .method("PUT")
+            .method("POST")
             .uri(uri)
             .header("content-type", "application/json")
             .body(hyper::Body::from(ping));

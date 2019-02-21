@@ -145,6 +145,7 @@ impl hyper::service::Service for RPCService {
                     let status = match err {
                         Error::NotFound => StatusCode::NOT_FOUND,
                         Error::BadRequest => StatusCode::BAD_REQUEST,
+                        Error::NonLocalStore => StatusCode::GONE,
                         _ => StatusCode::INTERNAL_SERVER_ERROR,
                     };
                     let json = serde_json::to_string(&response::Error { error: err })
