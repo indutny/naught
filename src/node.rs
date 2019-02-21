@@ -311,9 +311,9 @@ impl Node {
         let uri = format!("{}/_ping", uri);
 
         let request = hyper::Request::builder()
-            .method("POST")
+            .method(hyper::Method::POST)
             .uri(uri)
-            .header("content-type", "application/json")
+            .header(hyper::header::CONTENT_TYPE, "application/json")
             .body(hyper::Body::from(ping));
 
         let request = match request {

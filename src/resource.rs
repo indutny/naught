@@ -7,7 +7,7 @@ use std::hash::Hasher;
 
 use futures::future;
 use futures::prelude::*;
-use hyper::{Body, Client, Request, Response};
+use hyper::{Body, Client, Method, Request, Response};
 use siphasher::sip::SipHasher;
 
 use crate::error::Error;
@@ -75,7 +75,7 @@ impl Resource {
 
         trace!("fetch remote resource: {}", self.uri);
         let request = Request::builder()
-            .method("GET")
+            .method(Method::GET)
             .uri(self.uri.to_string())
             .header("x-naught-sender", sender.to_string())
             .header("x-naught-redirect", "false")
@@ -115,7 +115,7 @@ impl Resource {
         }
 
         let peek = Request::builder()
-            .method("HEAD")
+            .method(Method::HEAD)
             .uri(self.uri.to_string())
             .header("x-naught-sender", sender.to_string())
             .header("x-naught-redirect", "false")
@@ -123,7 +123,7 @@ impl Resource {
 
         trace!("store remote resource: {}", self.uri);
         let store = Request::builder()
-            .method("PUT")
+            .method(Method::PUT)
             .uri(self.uri.to_string())
             .header("x-naught-sender", sender.to_string())
             .header("x-naught-redirect", "false")
