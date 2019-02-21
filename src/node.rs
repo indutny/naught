@@ -148,7 +148,7 @@ impl Node {
                     .map(move |_| Some(target_uri))
                     .or_else(|err| {
                         // Single failed store should not fail others
-                        error!("remote store failed due to error: {:?}", err);
+                        trace!("remote store failed due to error: {:?}", err);
                         future::ok(None)
                     });
                 Box::new(store)
@@ -173,7 +173,7 @@ impl Node {
             .peers
             .values()
             .filter_map(|peer| {
-                if peer.remove_at() <= now {
+                if peer.should_remove(now) {
                     Some(peer.uri().to_string())
                 } else {
                     None
@@ -190,7 +190,7 @@ impl Node {
         let uris: Vec<String> = self
             .peers
             .values_mut()
-            .filter(|peer| peer.ping_at() <= now)
+            .filter(|peer| peer.should_ping(now))
             .map(|peer| peer.uri().to_string())
             .collect();
 
@@ -205,7 +205,7 @@ impl Node {
             Node::send_single_ping(ping.to_string(), &uri).or_else(move |err| {
                 // Single failed ping should not prevent other pings
                 // from happening
-                error!("ping to {} failed due to error: {:?}", uri, err);
+                trace!("ping to {} failed due to error: {:?}", uri, err);
                 future::ok(None)
             })
         });
@@ -216,7 +216,7 @@ impl Node {
         let now = Instant::now();
 
         let new_peers = HashSet::from_iter(self.peers.values().filter_map(|peer| {
-            if peer.stable_at() <= now {
+            if peer.is_stable(now) && peer.is_active(now) {
                 Some(peer.uri().to_string())
             } else {
                 None
@@ -256,7 +256,7 @@ impl Node {
                                 .map(|_| true)
                                 .or_else(|err| {
                                     // Single failed rebalance should not fail others
-                                    error!("remote rebalance failed due to error: {:?}", err);
+                                    trace!("remote rebalance failed due to error: {:?}", err);
                                     future::ok(false)
                                 }),
                         )
@@ -357,7 +357,17 @@ impl Node {
     }
 
     fn get_peer_uris(&self) -> Vec<String> {
-        self.peers.keys().cloned().collect()
+        let now = Instant::now();
+        self.peers
+            .iter()
+            .filter_map(|(key, peer)| {
+                if peer.is_active(now) {
+                    Some(key.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     fn add_peer(&mut self, uri: &str) {

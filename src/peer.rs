@@ -14,21 +14,24 @@ pub struct Peer {
     uri: String,
     ping_at: Instant,
     stable_at: Instant,
+    inactive_at: Instant,
     remove_at: Instant,
 }
 
 impl Peer {
     pub fn new(uri: String, config: Config) -> Self {
         let now = Instant::now();
-        let remove_at = now + config.alive_timeout;
-        let stable_at = now + config.stable_delay;
         let ping_at = now + Peer::ping_delay(&config);
+        let stable_at = now + config.stable_delay;
+        let inactive_at = now + config.alive_timeout;
+        let remove_at = now + config.alive_timeout + config.remove_timeout;
 
         Self {
             config,
             uri,
             ping_at,
             stable_at,
+            inactive_at,
             remove_at,
         }
     }
@@ -54,20 +57,25 @@ impl Peer {
 
     pub fn mark_alive(&mut self) {
         let now = Instant::now();
-        self.remove_at = now + self.config.alive_timeout;
+        self.remove_at = now + self.config.alive_timeout + self.config.remove_timeout;
+        self.inactive_at = now + self.config.alive_timeout;
         self.ping_at = now + Peer::ping_delay(&self.config);
     }
 
-    pub fn remove_at(&self) -> Instant {
-        self.remove_at
+    pub fn should_remove(&self, now: Instant) -> bool {
+        self.remove_at <= now
     }
 
-    pub fn ping_at(&self) -> Instant {
-        self.ping_at
+    pub fn should_ping(&self, now: Instant) -> bool {
+        self.ping_at <= now
     }
 
-    pub fn stable_at(&self) -> Instant {
-        self.stable_at
+    pub fn is_stable(&self, now: Instant) -> bool {
+        self.stable_at <= now
+    }
+
+    pub fn is_active(&self, now: Instant) -> bool {
+        now < self.inactive_at
     }
 }
 

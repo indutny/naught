@@ -20,8 +20,12 @@ pub struct Config {
     // How often to ping other nodes
     pub ping_every: PingEvery,
 
-    // How many ping retries to allow
+    // At least one ping should arrive during this time for requests to
+    // be forwarded to this remote node
     pub alive_timeout: Duration,
+
+    // Remote node would be forgotten after this timeout
+    pub remove_timeout: Duration,
 
     // How many second to wait before considering node stable
     pub stable_delay: Duration,
@@ -41,6 +45,7 @@ impl Config {
                 max: Duration::from_secs(5),
             },
             alive_timeout: Duration::from_secs(15),
+            remove_timeout: Duration::from_secs(15),
             stable_delay: Duration::from_secs(10),
             rebalance_every: Duration::from_secs(10),
         }
