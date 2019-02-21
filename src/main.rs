@@ -1,6 +1,12 @@
+#[macro_use]
+extern crate log;
+
 extern crate clap;
+extern crate futures;
+extern crate tokio;
 
 use clap::{App, Arg};
+use futures::prelude::*;
 
 use naught::config::Config;
 use naught::server::Server;
@@ -35,5 +41,10 @@ fn main() {
 
     let config = Config::new((0u64, 0u64));
     let server = Server::new(config);
-    server.listen(port, host).expect("Listen to not fail");
+    let listen = server.listen(port, host);
+
+    tokio::run(listen.map_err(|err| {
+        error!("Got error {:#?}", err);
+        panic!("Done");
+    }));
 }

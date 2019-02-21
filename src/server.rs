@@ -8,6 +8,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use futures::future;
 use futures::prelude::*;
 use tokio::timer::Interval;
 
@@ -25,8 +26,13 @@ impl Server {
         Server { config }
     }
 
-    pub fn listen(&self, port: u16, host: &str) -> Result<(), Error> {
-        let ip_addr: IpAddr = host.parse().map_err(Error::from)?;
+    pub fn listen(&self, port: u16, host: &str) -> Box<Future<Item = (), Error = Error> + Send> {
+        let ip_addr: IpAddr = match host.parse().map_err(Error::from) {
+            Ok(addr) => addr,
+            Err(err) => {
+                return Box::new(future::err(err));
+            }
+        };
         let bind_addr: SocketAddr = SocketAddr::new(ip_addr, port);
 
         let builder = hyper::Server::bind(&bind_addr);
@@ -83,16 +89,6 @@ impl Server {
                     })
             });
 
-        hyper::rt::run(
-            server
-                .join(ping)
-                .join(rebalance)
-                .map_err(|err: Error| {
-                    eprintln!("Got error: {:#?}", err);
-                })
-                .map(|_| ()),
-        );
-
-        Ok(())
+        Box::new(server.join(ping).join(rebalance).map(|_| ()))
     }
 }
