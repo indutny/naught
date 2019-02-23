@@ -155,7 +155,10 @@ impl Node {
     ) -> Box<Future<Item = response::Store, Error = Error> + Send> {
         if self.data.contains_key(container) {
             trace!("duplicate container: {}", container);
-            return Box::new(future::ok(response::Store { uris: vec![] }));
+            return Box::new(future::ok(response::Store {
+                container: container.to_string(),
+                uris: vec![],
+            }));
         }
 
         let entry = match Data::from_tar(value) {
@@ -198,9 +201,12 @@ impl Node {
             })
             .collect();
 
-        let uris = future::join_all(remote).and_then(|target_uris| {
+        let container_copy = container.to_string();
+
+        let uris = future::join_all(remote).and_then(move |target_uris| {
             trace!("stored container at: {:?}", target_uris);
             future::ok(response::Store {
+                container: container_copy,
                 uris: target_uris.into_iter().filter_map(|uri| uri).collect(),
             })
         });

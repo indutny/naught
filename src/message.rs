@@ -40,6 +40,7 @@ pub mod response {
 
     #[derive(Serialize, Debug)]
     pub struct Store {
+        pub container: String,
         pub uris: Vec<String>,
     }
 

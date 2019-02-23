@@ -1,5 +1,6 @@
 extern crate futures;
 extern crate serde_json;
+extern crate sha2;
 
 use std::sync::{Arc, Mutex};
 
@@ -9,6 +10,7 @@ use futures::IntoFuture;
 use hyper::{Body, Method, Request, Response, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::error::Error;
 use crate::message::response;
@@ -39,6 +41,19 @@ impl RPCService {
         serde_json::to_string(value)
             .map(Body::from)
             .map_err(Error::from)
+    }
+
+    fn compute_container(value: &[u8]) -> String {
+        let mut hasher = Sha256::new();
+        hasher.input(&value);
+        let digest = hasher.result();
+
+        let chunks: Vec<String> = digest
+            .into_iter()
+            .map(|byte| format!("{:02x}", byte))
+            .collect();
+
+        chunks.concat()
     }
 }
 
@@ -133,15 +148,16 @@ impl hyper::service::Service for RPCService {
                             }),
                     )
                 }
-                (Method::PUT, resource) => {
+                (Method::PUT, "/_container") => {
                     let node = self.node.clone();
-                    let resource = resource[1..].to_string();
                     Box::new(
                         RPCService::fetch_raw(body)
                             .and_then(move |value| {
+                                let container = RPCService::compute_container(&value);
+
                                 node.lock()
                                     .expect("lock to acquire")
-                                    .store(&resource, value, redirect)
+                                    .store(&container, value, redirect)
                             })
                             .and_then(|res| RPCService::stringify_value(&res))
                             .map(|body| Resource {
