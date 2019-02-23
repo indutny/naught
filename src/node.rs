@@ -431,10 +431,13 @@ impl Node {
     }
 
     fn find_resources(&self, container: &str) -> Vec<Resource> {
+        let now = Instant::now();
+
         // TODO(indutny): LRU
         let mut resources: Vec<Resource> = self
             .peers
             .values()
+            .filter(|peer| peer.is_stable(now) && peer.is_active(now))
             .map(|peer| Resource::new(peer.uri(), container, false, self.config.hash_seed))
             .collect();
         resources.push(self.construct_resource(container));
