@@ -271,8 +271,7 @@ impl Node {
             }
         }));
 
-        let added_peers: HashSet<&String> =
-            HashSet::from_iter(new_peers.difference(&self.last_peer_uris));
+        let added_peers = HashSet::from_iter(new_peers.difference(&self.last_peer_uris).cloned());
         let removed_peers = HashSet::from_iter(self.last_peer_uris.difference(&new_peers).cloned());
 
         if added_peers.is_empty() && removed_peers.is_empty() {
@@ -291,7 +290,8 @@ impl Node {
             .data
             .iter()
             .map(|(container, entry)| -> FutureMaybeKey {
-                let resources = self.find_rebalance_resources(container, &union, &removed_peers);
+                let resources =
+                    self.find_rebalance_resources(container, &union, &added_peers, &removed_peers);
 
                 let keep_local = resources.iter().any(|resource| resource.is_local());
 
@@ -451,6 +451,7 @@ impl Node {
         &self,
         container: &str,
         union: &[&String],
+        added_peers: &HashSet<String>,
         removed_peers: &HashSet<String>,
     ) -> Vec<Resource> {
         // TODO(indutny): LRU
@@ -467,13 +468,18 @@ impl Node {
             .cloned()
             .collect();
 
-        resources.truncate(self.config.replicate as usize + 1);
+        let mut old_resources: Vec<Resource> = resources
+            .into_iter()
+            .filter(|resource| !added_peers.contains(resource.peer_uri()))
+            .collect();
+
+        old_resources.truncate(self.config.replicate as usize + 1);
         new_resources.truncate(self.config.replicate as usize + 1);
 
         // TODO(indutny): optimize if ever needed
-        let resources: HashSet<Resource> = HashSet::from_iter(resources.into_iter());
+        let old_resources: HashSet<Resource> = HashSet::from_iter(old_resources.into_iter());
         let new_resources = HashSet::from_iter(new_resources.into_iter());
 
-        new_resources.difference(&resources).cloned().collect()
+        new_resources.difference(&old_resources).cloned().collect()
     }
 }
