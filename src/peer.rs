@@ -63,9 +63,16 @@ impl Peer {
 
     pub fn mark_alive(&mut self) {
         let now = Instant::now();
+        let was_active = self.is_active(now);
+
         self.remove_at = now + self.config.alive_timeout + self.config.remove_timeout;
         self.inactive_at = now + self.config.alive_timeout;
         self.ping_at = now + Peer::ping_delay(&self.config);
+
+        // Re-instantiate stable delay
+        if !was_active {
+            self.stable_at = now + self.config.stable_delay;
+        }
     }
 
     pub fn should_remove(&self, now: Instant) -> bool {
