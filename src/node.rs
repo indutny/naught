@@ -84,19 +84,23 @@ impl Node {
         Ok(self.construct_ping())
     }
 
-    pub fn peek(&self, uri: &str) -> Result<(), Error> {
-        if self.data.contains_key(uri) {
-            trace!("peek existing resource: {}", uri);
+    pub fn peek(&self, container: &str) -> Result<(), Error> {
+        if self.data.contains_key(container) {
+            trace!("peek existing container: {}", container);
             Ok(())
         } else {
-            trace!("peek missing resource: {}", uri);
+            trace!("peek missing container: {}", container);
             Err(Error::NotFound)
         }
     }
 
-    pub fn fetch(&self, uri: &str, redirect: bool) -> FutureFetch {
-        if let Some(entry) = self.data.get(uri) {
-            trace!("fetch existing resource: {} redirect: {}", uri, redirect);
+    pub fn fetch(&self, container: &str, redirect: bool) -> FutureFetch {
+        if let Some(entry) = self.data.get(container) {
+            trace!(
+                "fetch existing container: {} redirect: {}",
+                container,
+                redirect
+            );
             return Box::new(future::ok(response::Fetch {
                 peer: self.uri.to_string(),
                 body: hyper::Body::from(entry.serve("").to_vec()),
@@ -104,14 +108,18 @@ impl Node {
         }
 
         let mut resources = if redirect {
-            self.find_resources(uri)
+            self.find_resources(container)
         } else {
             vec![]
         };
 
         // No resources to redirect to
         if resources.is_empty() {
-            trace!("fetch missing resource: {} redirect: {}", uri, redirect);
+            trace!(
+                "fetch missing container: {} redirect: {}",
+                container,
+                redirect
+            );
             return Box::new(future::err(Error::NotFound));
         }
 
@@ -140,12 +148,12 @@ impl Node {
 
     pub fn store(
         &mut self,
-        uri: &str,
+        container: &str,
         value: Vec<u8>,
         redirect: bool,
     ) -> Box<Future<Item = response::Store, Error = Error> + Send> {
-        if self.data.contains_key(uri) {
-            trace!("duplicate resource: {}", uri);
+        if self.data.contains_key(container) {
+            trace!("duplicate container: {}", container);
             return Box::new(future::ok(response::Store { uris: vec![] }));
         }
 
@@ -153,18 +161,18 @@ impl Node {
 
         // Store only locally when redirect is `false`
         let resources: Vec<Resource> = self
-            .find_resources(uri)
+            .find_resources(container)
             .into_iter()
             .filter(|resource| redirect || resource.is_local())
             .collect();
 
         // Nowhere to store, notify caller
         if resources.is_empty() {
-            trace!("no resources for object: {}", uri);
-            return Box::new(future::err(Error::NonLocalStore(uri.to_string())));
+            trace!("no resources for container: {}", container);
+            return Box::new(future::err(Error::NonLocalStore(container.to_string())));
         }
 
-        trace!("new object: {}", uri);
+        trace!("new container: {}", container);
 
         let remote: Vec<FutureURI> = resources
             .into_iter()
@@ -185,13 +193,13 @@ impl Node {
             .collect();
 
         let uris = future::join_all(remote).and_then(|target_uris| {
-            trace!("stored resource remotely at: {:?}", target_uris);
+            trace!("stored container remotely at: {:?}", target_uris);
             future::ok(response::Store {
                 uris: target_uris.into_iter().filter_map(|uri| uri).collect(),
             })
         });
 
-        self.data.insert(uri.to_string(), entry);
+        self.data.insert(container.to_string(), entry);
 
         Box::new(uris)
     }
@@ -275,9 +283,9 @@ impl Node {
         let obsolete_keys: Vec<FutureMaybeKey> = self
             .data
             .iter()
-            .map(|(key, entry)| -> FutureMaybeKey {
+            .map(|(container, entry)| -> FutureMaybeKey {
                 let resources =
-                    self.find_rebalance_resources(key, &union, &removed_peers, &added_peers);
+                    self.find_rebalance_resources(container, &union, &removed_peers, &added_peers);
 
                 let keep_local = resources.iter().any(|resource| resource.is_local());
 
@@ -297,11 +305,11 @@ impl Node {
                     })
                     .collect();
 
-                let key = key.clone();
+                let container = container.clone();
 
                 Box::new(future::join_all(successes).and_then(move |successes| {
                     if !keep_local && successes.into_iter().any(|v| v) {
-                        future::ok(Some(key))
+                        future::ok(Some(container))
                     } else {
                         future::ok(None)
                     }
@@ -314,7 +322,7 @@ impl Node {
 
         Box::new(
             future::join_all(obsolete_keys)
-                .map(|keys| keys.into_iter().filter_map(|key| key).collect()),
+                .map(|keys| keys.into_iter().filter_map(|container| container).collect()),
         )
     }
 
