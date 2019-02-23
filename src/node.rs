@@ -199,7 +199,7 @@ impl Node {
             .collect();
 
         let uris = future::join_all(remote).and_then(|target_uris| {
-            trace!("stored container remotely at: {:?}", target_uris);
+            trace!("stored container at: {:?}", target_uris);
             future::ok(response::Store {
                 uris: target_uris.into_iter().filter_map(|uri| uri).collect(),
             })
