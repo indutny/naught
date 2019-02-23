@@ -3,7 +3,7 @@ extern crate hyper;
 extern crate siphasher;
 
 use std::cmp::Ordering;
-use std::hash::Hasher;
+use std::hash::{Hash, Hasher};
 
 use futures::future;
 use futures::prelude::*;
@@ -16,7 +16,7 @@ use crate::message::response;
 
 type FutureFetch = Box<Future<Item = response::Fetch, Error = Error> + Send>;
 
-#[derive(Eq, Debug)]
+#[derive(Eq, Clone, Debug)]
 pub struct Resource {
     peer_uri: String,
     store_uri: String,
@@ -40,6 +40,12 @@ impl PartialOrd for Resource {
 impl PartialEq for Resource {
     fn eq(&self, other: &Self) -> bool {
         self.hash == other.hash
+    }
+}
+
+impl Hash for Resource {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.store_uri.hash(state);
     }
 }
 

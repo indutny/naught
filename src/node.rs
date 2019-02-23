@@ -271,7 +271,8 @@ impl Node {
             }
         }));
 
-        let added_peers = HashSet::from_iter(new_peers.difference(&self.last_peer_uris).cloned());
+        let added_peers: HashSet<&String> =
+            HashSet::from_iter(new_peers.difference(&self.last_peer_uris));
         let removed_peers = HashSet::from_iter(self.last_peer_uris.difference(&new_peers).cloned());
 
         if added_peers.is_empty() && removed_peers.is_empty() {
@@ -290,8 +291,7 @@ impl Node {
             .data
             .iter()
             .map(|(container, entry)| -> FutureMaybeKey {
-                let resources =
-                    self.find_rebalance_resources(container, &union, &removed_peers, &added_peers);
+                let resources = self.find_rebalance_resources(container, &union, &removed_peers);
 
                 let keep_local = resources.iter().any(|resource| resource.is_local());
 
@@ -348,8 +348,8 @@ impl Node {
         }
     }
 
-    fn construct_resource(&self, uri: &str) -> Resource {
-        Resource::new(&self.uri, uri, true, self.config.hash_seed)
+    fn construct_resource(&self, container: &str) -> Resource {
+        Resource::new(&self.uri, container, true, self.config.hash_seed)
     }
 
     fn send_single_ping(&self, ping: &str, uri: &str) -> FuturePing {
@@ -430,14 +430,14 @@ impl Node {
         }
     }
 
-    fn find_resources(&self, uri: &str) -> Vec<Resource> {
+    fn find_resources(&self, container: &str) -> Vec<Resource> {
         // TODO(indutny): LRU
         let mut resources: Vec<Resource> = self
             .peers
             .values()
-            .map(|peer| Resource::new(peer.uri(), uri, false, self.config.hash_seed))
+            .map(|peer| Resource::new(peer.uri(), container, false, self.config.hash_seed))
             .collect();
-        resources.push(self.construct_resource(uri));
+        resources.push(self.construct_resource(container));
         resources.sort();
         resources.truncate(self.config.replicate as usize + 1);
 
@@ -446,25 +446,31 @@ impl Node {
 
     fn find_rebalance_resources(
         &self,
-        uri: &str,
+        container: &str,
         union: &[&String],
         removed_peers: &HashSet<String>,
-        added_peers: &HashSet<String>,
     ) -> Vec<Resource> {
         // TODO(indutny): LRU
         let mut resources: Vec<Resource> = union
             .iter()
-            .map(|peer_uri| Resource::new(peer_uri, uri, false, self.config.hash_seed))
-            .filter(|resource| !removed_peers.contains(resource.peer_uri()))
+            .map(|peer_uri| Resource::new(peer_uri, container, false, self.config.hash_seed))
             .collect();
-        resources.push(self.construct_resource(uri));
+        resources.push(self.construct_resource(container));
         resources.sort();
 
-        resources.truncate(self.config.replicate as usize + 1);
+        let mut new_resources: Vec<Resource> = resources
+            .iter()
+            .filter(|resource| !removed_peers.contains(resource.peer_uri()))
+            .cloned()
+            .collect();
 
-        resources
-            .into_iter()
-            .filter(|resource| resource.is_local() || added_peers.contains(resource.peer_uri()))
-            .collect()
+        resources.truncate(self.config.replicate as usize + 1);
+        new_resources.truncate(self.config.replicate as usize + 1);
+
+        // TODO(indutny): optimize if ever needed
+        let resources: HashSet<Resource> = HashSet::from_iter(resources.into_iter());
+        let new_resources = HashSet::from_iter(new_resources.into_iter());
+
+        new_resources.difference(&resources).cloned().collect()
     }
 }
