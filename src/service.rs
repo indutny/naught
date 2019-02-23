@@ -182,6 +182,12 @@ impl hyper::service::Service for RPCService {
                     res.header(hyper::header::CONTENT_TYPE, mime);
                     if let Some(sender) = resource.sender {
                         res.header("x-naught-sender", sender);
+
+                        // 30 years
+                        res.header(
+                            hyper::header::CACHE_CONTROL,
+                            "public, max-age=946080000, immutable",
+                        );
                     }
                     res.body(resource.body).into_future().from_err()
                 }),
