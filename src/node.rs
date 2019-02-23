@@ -94,7 +94,7 @@ impl Node {
         }
     }
 
-    pub fn fetch(&self, container: &str, redirect: bool) -> FutureFetch {
+    pub fn fetch(&self, container: &str, uri: &str, redirect: bool) -> FutureFetch {
         if let Some(entry) = self.data.get(container) {
             trace!(
                 "fetch existing container: {} redirect: {}",
@@ -103,7 +103,7 @@ impl Node {
             );
             return Box::new(future::ok(response::Fetch {
                 peer: self.uri.to_string(),
-                body: hyper::Body::from(entry.serve("").to_vec()),
+                body: hyper::Body::from(entry.serve(uri).to_vec()),
             }));
         }
 

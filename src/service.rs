@@ -111,18 +111,28 @@ impl hyper::service::Service for RPCService {
                         raw: false,
                     }),
                 ),
-                (Method::GET, resource) => Box::new(
-                    self.node
-                        .lock()
-                        .expect("lock to acquire")
-                        .fetch(&resource[1..], redirect)
-                        .map(|response| Resource {
-                            status: StatusCode::OK,
-                            sender: Some(response.peer),
-                            body: response.body,
-                            raw: true,
-                        }),
-                ),
+                (Method::GET, resource) => {
+                    let container = parts
+                        .headers
+                        .get(hyper::header::HOST)
+                        .map(|val| val.to_str().unwrap_or("unknown"))
+                        .unwrap_or("unknown");
+
+                    let container = container.split('.').next().unwrap_or("unknown");
+
+                    Box::new(
+                        self.node
+                            .lock()
+                            .expect("lock to acquire")
+                            .fetch(&container, &resource[1..], redirect)
+                            .map(|response| Resource {
+                                status: StatusCode::OK,
+                                sender: Some(response.peer),
+                                body: response.body,
+                                raw: true,
+                            }),
+                    )
+                }
                 (Method::PUT, resource) => {
                     let node = self.node.clone();
                     let resource = resource[1..].to_string();
