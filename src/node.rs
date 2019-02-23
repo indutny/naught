@@ -454,32 +454,84 @@ impl Node {
         added_peers: &HashSet<String>,
         removed_peers: &HashSet<String>,
     ) -> Vec<Resource> {
+        let self_resource = self.construct_resource(container);
+
         // TODO(indutny): LRU
         let mut resources: Vec<Resource> = union
             .iter()
             .map(|peer_uri| Resource::new(peer_uri, container, false, self.config.hash_seed))
             .collect();
-        resources.push(self.construct_resource(container));
+        resources.push(self_resource.clone());
         resources.sort();
 
+        // NOTE: Local peer should always appear in new resources, since we
+        // are using it for detecting moved keys
         let mut new_resources: Vec<Resource> = resources
             .iter()
-            .filter(|resource| resource.is_local() || !removed_peers.contains(resource.peer_uri()))
+            .filter(|resource| !removed_peers.contains(resource.peer_uri()))
             .cloned()
             .collect();
 
         let mut old_resources: Vec<Resource> = resources
             .into_iter()
-            .filter(|resource| !resource.is_local() && !added_peers.contains(resource.peer_uri()))
+            .filter(|resource| !added_peers.contains(resource.peer_uri()))
             .collect();
 
         old_resources.truncate(self.config.replicate as usize + 1);
         new_resources.truncate(self.config.replicate as usize + 1);
 
         // TODO(indutny): optimize if ever needed
-        let old_resources: HashSet<Resource> = HashSet::from_iter(old_resources.into_iter());
+        let mut old_resources: HashSet<Resource> = HashSet::from_iter(old_resources.into_iter());
         let new_resources = HashSet::from_iter(new_resources.into_iter());
 
+        // Make sure to keep local copy
+        if new_resources.contains(&self_resource) {
+            old_resources.remove(&self_resource);
+        }
+
         new_resources.difference(&old_resources).cloned().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::time::Duration;
+
+    #[test]
+    fn it_should_find_rebalance_resources() {
+        let mut config = Config::new((0, 0));
+        config.stable_delay = Duration::from_secs(0);
+        let node = Node::new(SocketAddr::from(([157, 230, 95, 152], 8007)), config);
+
+        let peers: Vec<String> = [
+            "http://157.230.95.152:80",
+            "http://157.230.95.152:8001",
+            "http://157.230.95.152:8002",
+            "http://157.230.95.152:8003",
+            "http://157.230.95.152:8004",
+            "http://157.230.95.152:8005",
+            "http://157.230.95.152:8006",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        let union: Vec<&String> = peers.iter().collect();
+        let added_peers = HashSet::new();
+        let mut removed_peers = HashSet::new();
+        removed_peers.insert("http://157.230.95.152:8004".to_string());
+
+        let resources: Vec<String> = node
+            .find_rebalance_resources("derivepass", &union, &added_peers, &removed_peers)
+            .into_iter()
+            .map(|resource| resource.peer_uri().to_string())
+            .collect();
+
+        assert_eq!(
+            resources,
+            vec!["http://157.230.95.152:8007", "http://157.230.95.152:8002",]
+        );
     }
 }

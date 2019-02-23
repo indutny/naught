@@ -39,7 +39,7 @@ impl PartialOrd for Resource {
 
 impl PartialEq for Resource {
     fn eq(&self, other: &Self) -> bool {
-        self.hash == other.hash
+        self.store_uri == other.store_uri
     }
 }
 
