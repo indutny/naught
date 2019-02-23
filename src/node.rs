@@ -444,7 +444,6 @@ impl Node {
         resources
     }
 
-    // TODO(indutny): find new locations for the data
     fn find_rebalance_resources(
         &self,
         uri: &str,
