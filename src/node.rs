@@ -438,7 +438,7 @@ impl Node {
             .map(|peer| Resource::new(peer.uri(), uri, false, self.config.hash_seed))
             .collect();
         resources.push(self.construct_resource(uri));
-        resources.sort_unstable();
+        resources.sort();
         resources.truncate(self.config.replicate as usize + 1);
 
         resources
@@ -459,7 +459,7 @@ impl Node {
             .filter(|resource| !removed_peers.contains(resource.peer_uri()))
             .collect();
         resources.push(self.construct_resource(uri));
-        resources.sort_unstable();
+        resources.sort();
 
         resources.truncate(self.config.replicate as usize + 1);
 
