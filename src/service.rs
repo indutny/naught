@@ -1,4 +1,5 @@
 extern crate futures;
+extern crate hmac;
 extern crate serde_json;
 extern crate sha2;
 
@@ -7,24 +8,32 @@ use std::sync::{Arc, Mutex};
 use futures::future::{self, FutureResult};
 use futures::prelude::*;
 use futures::IntoFuture;
+use hmac::{Hmac, Mac};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 
+use crate::config::Config;
 use crate::error::Error;
 use crate::message::response;
 use crate::node::Node;
 
-const CONTAINER_KEY_SIZE: usize = 8;
+type HmacSha256 = Hmac<Sha256>;
+
+const CONTAINER_ALPHABET: &[char] = &[
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i',
+    'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '-',
+];
 
 pub struct RPCService {
+    config: Config,
     node: Arc<Mutex<Node>>,
 }
 
 impl RPCService {
-    pub fn new(node: Arc<Mutex<Node>>) -> RPCService {
-        RPCService { node }
+    pub fn new(config: Config, node: Arc<Mutex<Node>>) -> RPCService {
+        RPCService { config, node }
     }
 
     fn fetch_json<T: DeserializeOwned>(body: Body) -> impl Future<Item = T, Error = Error> {
@@ -45,18 +54,24 @@ impl RPCService {
             .map_err(Error::from)
     }
 
-    fn compute_container(value: &[u8]) -> String {
-        let mut hasher = Sha256::new();
-        hasher.input(&value);
-        let digest = hasher.result();
+    fn compute_container(secret: &[u8], value: &[u8]) -> Result<String, Error> {
+        let mut mac = HmacSha256::new_varkey(secret)?;
+        mac.input(&value);
 
-        // TODO(indutny): use non-hex?
-        let chunks: Vec<String> = digest[..CONTAINER_KEY_SIZE]
-            .iter()
-            .map(|byte| format!("{:02x}", byte))
-            .collect();
+        let mut digest: [u8; 8] = [0; 8];
+        digest.copy_from_slice(&mac.result().code()[..8]);
+        let mut digest = u64::from_be_bytes(digest);
 
-        chunks.concat()
+        let alphabet_len = CONTAINER_ALPHABET.len() as u64;
+
+        let mut result = String::with_capacity(16);
+        while digest != 0 {
+            let m = digest % alphabet_len;
+            digest /= alphabet_len;
+
+            result.push(CONTAINER_ALPHABET[m as usize]);
+        }
+        Ok(result)
     }
 }
 
@@ -153,11 +168,15 @@ impl hyper::service::Service for RPCService {
                 }
                 (Method::PUT, "/_container") => {
                     let node = self.node.clone();
+                    let container_secret = self.config.container_secret.clone();
+
                     Box::new(
                         RPCService::fetch_raw(body)
                             .and_then(move |value| {
-                                let container = RPCService::compute_container(&value);
-
+                                RPCService::compute_container(&container_secret, &value)
+                                    .map(|container| (container, value))
+                            })
+                            .and_then(move |(container, value)| {
                                 node.lock()
                                     .expect("lock to acquire")
                                     .store(&container, value, redirect)
@@ -215,5 +234,25 @@ impl IntoFuture for RPCService {
 
     fn into_future(self) -> Self::Future {
         future::ok(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_should_compute_container_key() {
+        let container =
+            RPCService::compute_container(&[0; 8], &[1; 16]).expect("compute to not fail");
+        assert_eq!(container, "xi-eugvidbaq1");
+
+        let container =
+            RPCService::compute_container(&[1; 8], &[1; 16]).expect("compute to not fail");
+        assert_eq!(container, "uanrj2gxuwga2");
+
+        let container =
+            RPCService::compute_container(&[1; 8], &[2; 16]).expect("compute to not fail");
+        assert_eq!(container, "8bqx1cueyw5h2");
     }
 }

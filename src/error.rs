@@ -1,3 +1,4 @@
+extern crate hmac;
 extern crate hyper;
 extern crate serde;
 extern crate tokio;
@@ -19,6 +20,7 @@ pub enum Error {
     BadRequest,
     NonLocalStore(String),
     IO(String),
+    Hmac,
     Unreachable,
     JSON(String),
 }
@@ -43,6 +45,7 @@ impl fmt::Display for Error {
             Error::BadRequest => write!(f, "Unsupported request method or uri"),
             Error::NonLocalStore(s) => write!(f, "Cannot store {} locally", s),
             Error::IO(s) => write!(f, "IO Error: {}", s),
+            Error::Hmac => write!(f, "Hmac error"),
             Error::JSON(s) => write!(f, "JSON Error: {}", s),
         }
     }
@@ -81,5 +84,11 @@ impl From<serde_json::Error> for Error {
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
         Error::IO(err.description().to_string())
+    }
+}
+
+impl From<hmac::crypto_mac::InvalidKeyLength> for Error {
+    fn from(_: hmac::crypto_mac::InvalidKeyLength) -> Self {
+        Error::Hmac
     }
 }

@@ -41,7 +41,9 @@ impl Server {
         let node = Arc::new(Mutex::new(node));
 
         let serve_node = node.clone();
-        let server = builder.serve(move || RPCService::new(serve_node.clone()));
+
+        let rpc_config = self.config.clone();
+        let server = builder.serve(move || RPCService::new(rpc_config.clone(), serve_node.clone()));
 
         node.lock()
             .expect("lock to acquire")

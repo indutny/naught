@@ -507,7 +507,7 @@ mod tests {
 
     #[test]
     fn it_should_find_rebalance_resources() {
-        let mut config = Config::new((0, 0));
+        let mut config = Config::new(vec![0], (0, 0));
         config.stable_delay = Duration::from_secs(0);
         let node = Node::new(SocketAddr::from(([157, 230, 95, 152], 8007)), config);
 
@@ -529,15 +529,16 @@ mod tests {
         let mut removed_peers = HashSet::new();
         removed_peers.insert("http://157.230.95.152:8004".to_string());
 
-        let resources: Vec<String> = node
+        let mut resources: Vec<String> = node
             .find_rebalance_resources("derivepass", &union, &added_peers, &removed_peers)
             .into_iter()
             .map(|resource| resource.peer_uri().to_string())
             .collect();
+        resources.sort();
 
         assert_eq!(
             resources,
-            vec!["http://157.230.95.152:8007", "http://157.230.95.152:8002",]
+            vec!["http://157.230.95.152:8002", "http://157.230.95.152:8007",]
         );
     }
 }

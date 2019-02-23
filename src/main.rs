@@ -39,7 +39,7 @@ fn main() {
         .expect("Invalid port value");
     let host = matches.value_of("host").unwrap();
 
-    let config = Config::new((0u64, 0u64));
+    let config = Config::new(vec![0], (0u64, 0u64));
     let server = Server::new(config);
     let listen = server.listen(port, host);
 
