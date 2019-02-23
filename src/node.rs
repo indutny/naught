@@ -14,6 +14,7 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 
 use crate::config::Config;
+use crate::data::Data;
 use crate::error::Error;
 use crate::message::{common, response};
 use crate::peer::Peer;
@@ -28,15 +29,11 @@ type FutureKeyVec = Box<Future<Item = Vec<String>, Error = Error> + Send>;
 type FutureMaybeKey = Box<Future<Item = Option<String>, Error = Error> + Send>;
 type FutureBool = Box<Future<Item = bool, Error = Error> + Send>;
 
-struct DataEntry {
-    value: Vec<u8>,
-}
-
 pub struct Node {
     config: Config,
     uri: String,
     peers: HashMap<String, Peer>,
-    data: HashMap<String, DataEntry>,
+    data: HashMap<String, Data>,
 
     // Last peers before rebalance
     last_peers: HashMap<String, Peer>,
@@ -102,7 +99,7 @@ impl Node {
             trace!("fetch existing resource: {} redirect: {}", uri, redirect);
             return Box::new(future::ok(response::Fetch {
                 peer: self.uri.to_string(),
-                body: hyper::Body::from(entry.value.clone()),
+                body: hyper::Body::from(entry.serve("").to_vec()),
             }));
         }
 
@@ -152,6 +149,8 @@ impl Node {
             return Box::new(future::ok(response::Store { uris: vec![] }));
         }
 
+        let entry = Data::from_blob(value);
+
         // Store only locally when redirect is `false`
         let resources: Vec<Resource> = self
             .find_resources(uri)
@@ -174,7 +173,7 @@ impl Node {
                 let target_uri = resource.uri().to_string();
 
                 let store = resource
-                    .store(&self.client, &self.uri, &value)
+                    .store(&self.client, &self.uri, &entry)
                     .map(move |_| Some(target_uri))
                     .or_else(|err| {
                         // Single failed store should not fail others
@@ -192,7 +191,7 @@ impl Node {
             })
         });
 
-        self.data.insert(uri.to_string(), DataEntry { value });
+        self.data.insert(uri.to_string(), entry);
 
         Box::new(uris)
     }
@@ -287,7 +286,7 @@ impl Node {
                     .map(|resource| -> FutureBool {
                         Box::new(
                             resource
-                                .store(&self.client, &self.uri, &entry.value)
+                                .store(&self.client, &self.uri, &entry)
                                 .map(|_| true)
                                 .or_else(|err| {
                                     // Single failed rebalance should not fail others

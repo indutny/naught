@@ -10,6 +10,7 @@ use futures::prelude::*;
 use hyper::{client, Body, Client, Method, Request, Response};
 use siphasher::sip::SipHasher;
 
+use crate::data::Data;
 use crate::error::Error;
 
 type FutureBody = Box<Future<Item = Body, Error = Error> + Send>;
@@ -108,7 +109,7 @@ impl Resource {
         &self,
         client: &Client<client::HttpConnector>,
         sender: &str,
-        value: &[u8],
+        data: &Data,
     ) -> Box<Future<Item = (), Error = Error> + Send> {
         if self.local {
             // Should be handled by caller
@@ -128,7 +129,7 @@ impl Resource {
             .uri(self.uri.to_string())
             .header("x-naught-sender", sender.to_string())
             .header("x-naught-redirect", "false")
-            .body(Body::from(value.to_vec()));
+            .body(Body::from(Vec::from(data)));
 
         let peek = match peek {
             Ok(peek) => peek,
