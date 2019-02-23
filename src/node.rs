@@ -101,9 +101,19 @@ impl Node {
                 container,
                 redirect
             );
+
+            let file = match entry.serve(uri) {
+                Some(file) => file,
+                None => {
+                    trace!("fetch missing uri: {} in container: {}", uri, container,);
+                    return Box::new(future::err(Error::NotFound));
+                }
+            };
+
             return Box::new(future::ok(response::Fetch {
                 peer: self.uri.to_string(),
-                body: hyper::Body::from(entry.serve(uri).to_vec()),
+                mime: file.mime.clone(),
+                body: hyper::Body::from(file.content.clone()),
             }));
         }
 
@@ -127,21 +137,12 @@ impl Node {
         let mut rng = thread_rng();
         resources.shuffle(&mut rng);
 
-        let response: FutureFetch =
-            resources
-                .into_iter()
-                .map(|resource| -> FutureFetch {
-                    let peer_uri = resource.peer_uri().to_string();
-                    Box::new(resource.fetch(&self.client, &self.uri).map(move |body| {
-                        response::Fetch {
-                            peer: peer_uri,
-                            body,
-                        }
-                    }))
-                })
-                .fold(Box::new(future::err(Error::Unreachable)), |acc, f| {
-                    Box::new(acc.or_else(move |_| f))
-                });
+        let response: FutureFetch = resources
+            .into_iter()
+            .map(|resource| resource.fetch(&self.client, &self.uri))
+            .fold(Box::new(future::err(Error::Unreachable)), |acc, f| {
+                Box::new(acc.or_else(move |_| f))
+            });
 
         Box::new(response)
     }
@@ -157,7 +158,12 @@ impl Node {
             return Box::new(future::ok(response::Store { uris: vec![] }));
         }
 
-        let entry = Data::from_blob(value);
+        let entry = match Data::from_tar(value) {
+            Ok(entry) => entry,
+            Err(err) => {
+                return Box::new(future::err(err));
+            }
+        };
 
         // Store only locally when redirect is `false`
         let resources: Vec<Resource> = self

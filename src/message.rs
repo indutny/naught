@@ -45,6 +45,7 @@ pub mod response {
 
     pub struct Fetch {
         pub peer: String,
+        pub mime: String,
         pub body: hyper::Body,
     }
 }

@@ -44,9 +44,9 @@ impl RPCService {
 
 struct Resource {
     status: StatusCode,
+    mime: Option<String>,
     sender: Option<String>,
     body: Body,
-    raw: bool,
 }
 
 impl hyper::service::Service for RPCService {
@@ -75,9 +75,9 @@ impl hyper::service::Service for RPCService {
                         .and_then(|info| RPCService::stringify_value(&info))
                         .map(|body| Resource {
                             status: StatusCode::OK,
+                            mime: None,
                             sender: None,
                             body,
-                            raw: false,
                         }),
                 ),
                 (Method::POST, "/_ping") => {
@@ -90,9 +90,9 @@ impl hyper::service::Service for RPCService {
                             .and_then(|res| RPCService::stringify_value(&res))
                             .map(|body| Resource {
                                 status: StatusCode::OK,
+                                mime: None,
                                 sender: None,
                                 body,
-                                raw: false,
                             }),
                     )
                 }
@@ -106,9 +106,9 @@ impl hyper::service::Service for RPCService {
                     .and_then(|res| RPCService::stringify_value(&res))
                     .map(|body| Resource {
                         status: StatusCode::OK,
+                        mime: None,
                         sender: None,
                         body,
-                        raw: false,
                     }),
                 ),
                 (Method::GET, resource) => {
@@ -127,9 +127,9 @@ impl hyper::service::Service for RPCService {
                             .fetch(&container, &resource[1..], redirect)
                             .map(|response| Resource {
                                 status: StatusCode::OK,
+                                mime: Some(response.mime),
                                 sender: Some(response.peer),
                                 body: response.body,
-                                raw: true,
                             }),
                     )
                 }
@@ -146,9 +146,9 @@ impl hyper::service::Service for RPCService {
                             .and_then(|res| RPCService::stringify_value(&res))
                             .map(|body| Resource {
                                 status: StatusCode::CREATED,
+                                mime: None,
                                 sender: None,
                                 body,
-                                raw: false,
                             }),
                     )
                 }
@@ -168,16 +168,18 @@ impl hyper::service::Service for RPCService {
                         .unwrap_or_else(|_| "{\"error\":\"unknown error\"}".to_string());
                     Ok(Resource {
                         status,
+                        mime: None,
                         sender: None,
                         body: Body::from(json),
-                        raw: false,
                     })
                 })
                 .and_then(move |resource| {
                     res.status(resource.status);
-                    if !resource.raw {
-                        res.header(hyper::header::CONTENT_TYPE, "application/json");
-                    }
+                    // TODO(indutny): excessive cloning of strings
+                    let mime = resource
+                        .mime
+                        .unwrap_or_else(|| "application/json".to_string());
+                    res.header(hyper::header::CONTENT_TYPE, mime);
                     if let Some(sender) = resource.sender {
                         res.header("x-naught-sender", sender);
                     }

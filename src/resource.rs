@@ -12,8 +12,9 @@ use siphasher::sip::SipHasher;
 
 use crate::data::Data;
 use crate::error::Error;
+use crate::message::response;
 
-type FutureBody = Box<Future<Item = Body, Error = Error> + Send>;
+type FutureFetch = Box<Future<Item = response::Fetch, Error = Error> + Send>;
 
 #[derive(Eq, Debug)]
 pub struct Resource {
@@ -69,7 +70,7 @@ impl Resource {
         self.local
     }
 
-    pub fn fetch(&self, client: &Client<client::HttpConnector>, sender: &str) -> FutureBody {
+    pub fn fetch(&self, client: &Client<client::HttpConnector>, sender: &str) -> FutureFetch {
         if self.local {
             return Box::new(future::err(Error::NotFound));
         }
@@ -89,6 +90,8 @@ impl Resource {
             }
         };
 
+        let sender = self.peer_uri.clone();
+
         // TODO(indutny): timeout
         Box::new(
             client
@@ -101,7 +104,21 @@ impl Resource {
                         Err(Error::NotFound)
                     }
                 })
-                .map(|response| response.into_body()),
+                .map(move |response| {
+                    let (parts, body) = response.into_parts();
+
+                    let mime = parts
+                        .headers
+                        .get(hyper::header::CONTENT_TYPE)
+                        .map(|val| val.to_str().unwrap_or("unknown"))
+                        .unwrap_or("unknown")
+                        .to_string();
+                    response::Fetch {
+                        peer: sender,
+                        mime,
+                        body,
+                    }
+                }),
         )
     }
 

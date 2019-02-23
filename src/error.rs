@@ -18,6 +18,7 @@ pub enum Error {
     PingFailed,
     BadRequest,
     NonLocalStore(String),
+    IO(String),
     Unreachable,
     JSON(String),
 }
@@ -41,6 +42,7 @@ impl fmt::Display for Error {
             Error::PingFailed => write!(f, "Remote ping failed"),
             Error::BadRequest => write!(f, "Unsupported request method or uri"),
             Error::NonLocalStore(s) => write!(f, "Cannot store {} locally", s),
+            Error::IO(s) => write!(f, "IO Error: {}", s),
             Error::JSON(s) => write!(f, "JSON Error: {}", s),
         }
     }
@@ -73,5 +75,11 @@ impl From<tokio::timer::Error> for Error {
 impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Self {
         Error::JSON(format!("{:#?}", err))
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::IO(err.description().to_string())
     }
 }
