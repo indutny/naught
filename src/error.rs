@@ -1,6 +1,7 @@
 extern crate hyper;
 extern crate serde;
 extern crate tokio;
+extern crate wasmi;
 
 use std::error::Error as StdError;
 use std::fmt;
@@ -13,6 +14,8 @@ pub enum Error {
     Hyper(String),
     HyperHTTP(String),
     TimerError,
+    Wasm(String),
+    WasmTrap(String),
     NotFound,
     StoreFailed(String),
     PingFailed,
@@ -35,6 +38,8 @@ impl fmt::Display for Error {
             Error::Hyper(s) => write!(f, "Hyper: {}", s),
             Error::HyperHTTP(s) => write!(f, "Hyper HTTP: {}", s),
             Error::TimerError => write!(f, "TimerError"),
+            Error::Wasm(s) => write!(f, "Wasm: {}", s),
+            Error::WasmTrap(s) => write!(f, "WasmTrap: {}", s),
             Error::Unreachable => write!(f, "Unreachable"),
             Error::NotFound => write!(f, "Resource not found"),
             Error::StoreFailed(s) => write!(f, "Resource {} store failed", s),
@@ -73,5 +78,17 @@ impl From<tokio::timer::Error> for Error {
 impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Self {
         Error::JSON(format!("{:#?}", err))
+    }
+}
+
+impl From<wasmi::Error> for Error {
+    fn from(err: wasmi::Error) -> Self {
+        Error::Wasm(err.description().to_string())
+    }
+}
+
+impl From<wasmi::Trap> for Error {
+    fn from(err: wasmi::Trap) -> Self {
+        Error::WasmTrap(err.description().to_string())
     }
 }

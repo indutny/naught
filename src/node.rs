@@ -18,6 +18,7 @@ use crate::error::Error;
 use crate::message::{common, response};
 use crate::peer::Peer;
 use crate::resource::Resource;
+use crate::wasm::Code;
 
 type MaybePing = Option<common::Ping>;
 type FuturePingVec = Box<Future<Item = Vec<MaybePing>, Error = Error> + Send>;
@@ -30,6 +31,7 @@ type FutureBool = Box<Future<Item = bool, Error = Error> + Send>;
 
 struct DataEntry {
     value: Vec<u8>,
+    code: Code,
 }
 
 pub struct Node {
@@ -100,9 +102,17 @@ impl Node {
     pub fn fetch(&self, uri: &str, redirect: bool) -> FutureFetch {
         if let Some(entry) = self.data.get(uri) {
             trace!("fetch existing resource: {} redirect: {}", uri, redirect);
+
+            let body = match entry.code.execute() {
+                Ok(value) => hyper::Body::from(value),
+                Err(err) => {
+                    return Box::new(future::err(err));
+                }
+            };
+
             return Box::new(future::ok(response::Fetch {
                 peer: self.uri.to_string(),
-                body: hyper::Body::from(entry.value.clone()),
+                body,
             }));
         }
 
@@ -166,6 +176,12 @@ impl Node {
         }
 
         trace!("new object: {}", uri);
+        let code = match Code::from_blob(&value) {
+            Ok(code) => code,
+            Err(err) => {
+                return Box::new(future::err(err));
+            }
+        };
 
         let remote: Vec<FutureURI> = resources
             .into_iter()
@@ -192,7 +208,7 @@ impl Node {
             })
         });
 
-        self.data.insert(uri.to_string(), DataEntry { value });
+        self.data.insert(uri.to_string(), DataEntry { value, code });
 
         Box::new(uris)
     }

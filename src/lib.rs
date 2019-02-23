@@ -10,3 +10,4 @@ mod message;
 mod peer;
 mod resource;
 mod service;
+mod wasm;
