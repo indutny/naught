@@ -55,6 +55,7 @@ impl Data {
     }
 
     pub fn serve(&self, uri: &str) -> Option<&DataFile> {
+        trace!("serving uri: {}", uri);
         self.map.get(uri)
     }
 }
