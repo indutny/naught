@@ -470,7 +470,7 @@ impl Node {
 
         let mut old_resources: Vec<Resource> = resources
             .into_iter()
-            .filter(|resource| !resource.is_local() || !added_peers.contains(resource.peer_uri()))
+            .filter(|resource| !resource.is_local() && !added_peers.contains(resource.peer_uri()))
             .collect();
 
         old_resources.truncate(self.config.replicate as usize + 1);
