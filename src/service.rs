@@ -16,6 +16,8 @@ use crate::error::Error;
 use crate::message::response;
 use crate::node::Node;
 
+const CONTAINER_KEY_SIZE: usize = 8;
+
 pub struct RPCService {
     node: Arc<Mutex<Node>>,
 }
@@ -48,8 +50,8 @@ impl RPCService {
         hasher.input(&value);
         let digest = hasher.result();
 
-        let chunks: Vec<String> = digest
-            .into_iter()
+        let chunks: Vec<String> = digest[..CONTAINER_KEY_SIZE]
+            .iter()
             .map(|byte| format!("{:02x}", byte))
             .collect();
 
