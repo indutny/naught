@@ -19,7 +19,8 @@ type FutureFetch = Box<Future<Item = response::Fetch, Error = Error> + Send>;
 #[derive(Eq, Debug)]
 pub struct Resource {
     peer_uri: String,
-    uri: String,
+    store_uri: String,
+    container: String,
     hash: u64,
     local: bool,
 }
@@ -43,16 +44,17 @@ impl PartialEq for Resource {
 }
 
 impl Resource {
-    pub fn new(peer_uri: &str, uri: &str, local: bool, hash_seed: (u64, u64)) -> Resource {
+    pub fn new(peer_uri: &str, container: &str, local: bool, hash_seed: (u64, u64)) -> Resource {
         let mut hasher = SipHasher::new_with_keys(hash_seed.0, hash_seed.1);
 
         let peer_uri = peer_uri.to_string();
-        let uri = format!("{}/{}", peer_uri, uri);
+        let store_uri = format!("{}/{}", peer_uri, container);
 
-        hasher.write(uri.as_bytes());
+        hasher.write(store_uri.as_bytes());
         Resource {
             peer_uri,
-            uri,
+            store_uri,
+            container: container.to_string(),
             local,
             hash: hasher.finish(),
         }
@@ -62,23 +64,27 @@ impl Resource {
         &self.peer_uri
     }
 
-    pub fn uri(&self) -> &str {
-        &self.uri
-    }
-
     pub fn is_local(&self) -> bool {
         self.local
     }
 
-    pub fn fetch(&self, client: &Client<client::HttpConnector>, sender: &str) -> FutureFetch {
+    pub fn fetch(
+        &self,
+        client: &Client<client::HttpConnector>,
+        sender: &str,
+        uri: &str,
+    ) -> FutureFetch {
         if self.local {
             return Box::new(future::err(Error::NotFound));
         }
 
-        trace!("fetch remote resource: {}", self.uri);
+        let uri = format!("{}/{}", self.peer_uri, uri);
+
+        trace!("fetch remote container: {} uri: {}", self.container, uri);
         let request = Request::builder()
             .method(Method::GET)
-            .uri(self.uri.to_string())
+            .uri(uri)
+            .header(hyper::header::HOST, self.container.to_string())
             .header("x-naught-sender", sender.to_string())
             .header("x-naught-redirect", "false")
             .body(Body::empty());
@@ -133,17 +139,20 @@ impl Resource {
             return Box::new(future::ok(()));
         }
 
+        let uri = self.store_uri.clone();
+
+        trace!("store remote resource: {}", uri);
+
         let peek = Request::builder()
             .method(Method::HEAD)
-            .uri(self.uri.to_string())
+            .uri(uri.clone())
             .header("x-naught-sender", sender.to_string())
             .header("x-naught-redirect", "false")
             .body(Body::empty());
 
-        trace!("store remote resource: {}", self.uri);
         let store = Request::builder()
             .method(Method::PUT)
-            .uri(self.uri.to_string())
+            .uri(uri)
             .header("x-naught-sender", sender.to_string())
             .header("x-naught-redirect", "false")
             .body(Body::from(Vec::from(data)));
@@ -174,7 +183,7 @@ impl Resource {
             });
 
         // TODO(indutny): excessive cloning?
-        let debug_uri = self.uri.to_string();
+        let debug_uri = self.store_uri.to_string();
 
         let on_store_response = move |response: Response<Body>| {
             if response.status().is_success() {

@@ -139,7 +139,7 @@ impl Node {
 
         let response: FutureFetch = resources
             .into_iter()
-            .map(|resource| resource.fetch(&self.client, &self.uri))
+            .map(|resource| resource.fetch(&self.client, &self.uri, uri))
             .fold(Box::new(future::err(Error::Unreachable)), |acc, f| {
                 Box::new(acc.or_else(move |_| f))
             });
@@ -184,7 +184,7 @@ impl Node {
             .into_iter()
             .map(|resource| -> FutureURI {
                 // TODO(indutny): excessive cloning?
-                let target_uri = resource.uri().to_string();
+                let target_uri = resource.peer_uri().to_string();
 
                 let store = resource
                     .store(&self.client, &self.uri, &entry)
