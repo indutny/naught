@@ -50,6 +50,7 @@ impl RPCService {
         hasher.input(&value);
         let digest = hasher.result();
 
+        // TODO(indutny): use non-hex?
         let chunks: Vec<String> = digest[..CONTAINER_KEY_SIZE]
             .iter()
             .map(|byte| format!("{:02x}", byte))
