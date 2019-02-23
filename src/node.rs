@@ -464,13 +464,13 @@ impl Node {
 
         let mut new_resources: Vec<Resource> = resources
             .iter()
-            .filter(|resource| !removed_peers.contains(resource.peer_uri()))
+            .filter(|resource| resource.is_local() || !removed_peers.contains(resource.peer_uri()))
             .cloned()
             .collect();
 
         let mut old_resources: Vec<Resource> = resources
             .into_iter()
-            .filter(|resource| !added_peers.contains(resource.peer_uri()))
+            .filter(|resource| !resource.is_local() || !added_peers.contains(resource.peer_uri()))
             .collect();
 
         old_resources.truncate(self.config.replicate as usize + 1);
