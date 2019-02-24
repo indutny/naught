@@ -1,5 +1,6 @@
 extern crate futures;
 extern crate hmac;
+extern crate serde;
 extern crate serde_json;
 extern crate sha2;
 

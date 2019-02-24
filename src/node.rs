@@ -345,6 +345,19 @@ impl Node {
         }
     }
 
+    pub fn add_peer(&mut self, uri: &str) {
+        if uri == self.uri {
+            return;
+        }
+
+        let uri_str = uri.to_string();
+        if !self.peers.contains_key(&uri_str) {
+            trace!("new peer: {}", uri);
+            self.peers
+                .insert(uri_str.clone(), Peer::new(uri_str, self.config.clone()));
+        }
+    }
+
     // Internal methods
 
     fn construct_ping(&self) -> common::Ping {
@@ -421,19 +434,6 @@ impl Node {
                 }
             })
             .collect()
-    }
-
-    fn add_peer(&mut self, uri: &str) {
-        if uri == self.uri {
-            return;
-        }
-
-        let uri_str = uri.to_string();
-        if !self.peers.contains_key(&uri_str) {
-            trace!("new peer: {}", uri);
-            self.peers
-                .insert(uri_str.clone(), Peer::new(uri_str, self.config.clone()));
-        }
     }
 
     fn find_resources(&self, container: &str) -> Vec<Resource> {

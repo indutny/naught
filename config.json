@@ -1,0 +1,15 @@
+{
+  "auth_secret": "super-secret",
+  "container_secret": [ 0, 1, 2, 3 ],
+  "hash_seed": [ 0, 0 ],
+  "replicate": 1,
+  "initial_peers": [],
+  "ping_every": {
+    "min": [ 1, 0 ],
+    "max": [ 3, 0 ]
+  },
+  "alive_timeout": [ 6, 0 ],
+  "remove_timeout": [ 300, 0 ],
+  "stable_delay": [ 12, 0 ],
+  "rebalance_every": [ 12, 0 ]
+}
