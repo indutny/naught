@@ -6,6 +6,7 @@ use std::io::Read;
 
 use crate::error::Error;
 
+// TODO(indutny): compression
 pub struct DataFile {
     pub mime: String,
     pub content: Vec<u8>,
