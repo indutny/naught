@@ -12,6 +12,9 @@ pub struct PingEvery {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    // Optional https_port to advertise to other peers
+    pub https_port: Option<u16>,
+
     // Container secret for hmac
     pub container_secret: Vec<u8>,
 
@@ -44,6 +47,7 @@ pub struct Config {
 impl Config {
     pub fn new(container_secret: Vec<u8>, hash_seed: (u64, u64)) -> Self {
         Self {
+            https_port: None,
             container_secret,
             hash_seed,
             replicate: 1,

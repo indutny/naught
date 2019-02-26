@@ -288,14 +288,14 @@ mod tests {
     fn it_should_compute_container_key() {
         let container =
             RPCService::compute_container(&[0; 8], &[1; 16]).expect("compute to not fail");
-        assert_eq!(container, "xi-eugvidbaq1");
+        assert_eq!(container, "5s5hm016gajd2");
 
         let container =
             RPCService::compute_container(&[1; 8], &[1; 16]).expect("compute to not fail");
-        assert_eq!(container, "uanrj2gxuwga2");
+        assert_eq!(container, "yavn6x3gtu563");
 
         let container =
             RPCService::compute_container(&[1; 8], &[2; 16]).expect("compute to not fail");
-        assert_eq!(container, "8bqx1cueyw5h2");
+        assert_eq!(container, "9zzezdv0218f3");
     }
 }

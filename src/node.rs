@@ -5,7 +5,7 @@ extern crate serde_json;
 
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
 
 use futures::future;
@@ -46,8 +46,20 @@ pub struct Node {
 }
 
 impl Node {
+    fn public_uri(ip: IpAddr, port: u16, https: bool) -> String {
+        if https {
+            format!("https://{}:{}", ip, port)
+        } else {
+            format!("http://{}:{}", ip, port)
+        }
+    }
+
     pub fn new(bind_addr: SocketAddr, config: Config) -> Node {
-        let uri = format!("https://{}", bind_addr);
+        let uri = Node::public_uri(
+            bind_addr.ip(),
+            config.https_port.unwrap_or_else(|| bind_addr.port()),
+            config.https_port.is_some(),
+        );
         let client = Client::new(&config, &uri);
 
         Node {
@@ -64,7 +76,11 @@ impl Node {
     }
 
     pub fn set_local_addr(&mut self, local_addr: SocketAddr) {
-        self.uri = format!("https://{}", local_addr);
+        self.uri = Node::public_uri(
+            local_addr.ip(),
+            self.config.https_port.unwrap_or_else(|| local_addr.port()),
+            self.config.https_port.is_some(),
+        );
     }
 
     // RPC below
