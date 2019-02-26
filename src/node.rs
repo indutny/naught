@@ -48,7 +48,7 @@ pub struct Node {
 impl Node {
     pub fn new(bind_addr: SocketAddr, config: Config) -> Node {
         let uri = format!("http://{}", bind_addr);
-        let client = Client::new(uri.clone());
+        let client = Client::new(&config, &uri);
 
         Node {
             config,

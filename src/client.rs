@@ -7,6 +7,7 @@ use futures::prelude::*;
 use hyper::client::HttpConnector;
 use hyper::{header, Body, Client as HTTPClient, Method, Request, Response};
 
+use crate::config::Config;
 use crate::data::Data;
 use crate::error::Error;
 use crate::message::{common, response};
@@ -18,13 +19,16 @@ type FutureEmpty = Box<Future<Item = (), Error = Error> + Send>;
 pub struct Client {
     client: HTTPClient<HttpConnector>,
     sender: String,
+    auth: String,
 }
 
 impl Client {
-    pub fn new(sender: String) -> Self {
+    pub fn new(config: &Config, sender: &str) -> Self {
+        let auth = format!("Bearer {:x}{:x}", config.hash_seed.0, config.hash_seed.1);
         Client {
             client: HTTPClient::new(),
-            sender,
+            sender: sender.to_string(),
+            auth,
         }
     }
 
@@ -34,6 +38,7 @@ impl Client {
         let request = Request::builder()
             .method(Method::POST)
             .uri(uri)
+            .header("authorization", self.auth.clone())
             .header("x-naught-sender", self.sender.clone())
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(json_ping.to_string()));
@@ -136,6 +141,7 @@ impl Client {
         let store = Request::builder()
             .method(Method::PUT)
             .uri(format!("{}/_container", peer_uri))
+            .header("authorization", self.auth.clone())
             .header("x-naught-sender", self.sender.to_string())
             .header("x-naught-redirect", "false")
             .body(Body::from(Vec::from(data)));
