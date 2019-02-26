@@ -13,6 +13,7 @@ use futures::prelude::*;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 
+use crate::client::Client;
 use crate::config::Config;
 use crate::data::Data;
 use crate::error::Error;
@@ -41,12 +42,13 @@ pub struct Node {
     last_peer_uris: HashSet<String>,
 
     // Shared client with connection pool
-    client: hyper::Client<hyper::client::HttpConnector>,
+    client: Client,
 }
 
 impl Node {
     pub fn new(bind_addr: SocketAddr, config: Config) -> Node {
         let uri = format!("http://{}", bind_addr);
+        let client = Client::new(uri.clone());
 
         Node {
             config,
@@ -57,7 +59,7 @@ impl Node {
             last_peers: HashMap::new(),
             last_peer_uris: HashSet::new(),
 
-            client: hyper::Client::new(),
+            client,
         }
     }
 
@@ -139,7 +141,7 @@ impl Node {
 
         let response: FutureFetch = resources
             .into_iter()
-            .map(|resource| resource.fetch(&self.client, &self.uri, uri))
+            .map(|resource| resource.fetch(&self.client, uri))
             .fold(Box::new(future::err(Error::Unreachable)), |acc, f| {
                 Box::new(acc.or_else(move |_| f))
             });
@@ -190,7 +192,7 @@ impl Node {
                 let target_uri = resource.peer_uri().to_string();
 
                 let store = resource
-                    .store(&self.client, &self.uri, &entry)
+                    .store(&self.client, &entry)
                     .map(move |_| Some(target_uri))
                     .or_else(|err| {
                         // Single failed store should not fail others
@@ -254,11 +256,11 @@ impl Node {
 
         let pings: Vec<FuturePing> = uris
             .into_iter()
-            .map(|uri| -> FuturePing {
-                Box::new(self.send_single_ping(&ping, &uri).or_else(move |err| {
+            .map(|peer_uri| -> FuturePing {
+                Box::new(self.client.ping(&peer_uri, &ping).or_else(move |err| {
                     // Single failed ping should not prevent other pings
                     // from happening
-                    trace!("ping to {} failed due to error: {:?}", uri, err);
+                    trace!("ping to {} failed due to error: {:?}", peer_uri, err);
                     future::ok(None)
                 }))
             })
@@ -304,16 +306,13 @@ impl Node {
                 let successes: Vec<FutureBool> = resources
                     .into_iter()
                     .map(|resource| -> FutureBool {
-                        Box::new(
-                            resource
-                                .store(&self.client, &self.uri, &entry)
-                                .map(|_| true)
-                                .or_else(|err| {
-                                    // Single failed rebalance should not fail others
-                                    trace!("remote rebalance failed due to error: {:?}", err);
-                                    future::ok(false)
-                                }),
-                        )
+                        Box::new(resource.store(&self.client, &entry).map(|_| true).or_else(
+                            |err| {
+                                // Single failed rebalance should not fail others
+                                trace!("remote rebalance failed due to error: {:?}", err);
+                                future::ok(false)
+                            },
+                        ))
                     })
                     .collect();
 
@@ -369,42 +368,6 @@ impl Node {
 
     fn construct_resource(&self, container: &str) -> Resource {
         Resource::new(&self.uri, container, true, self.config.hash_seed)
-    }
-
-    fn send_single_ping(&self, ping: &str, uri: &str) -> FuturePing {
-        let uri = format!("{}/_ping", uri);
-
-        let request = hyper::Request::builder()
-            .method(hyper::Method::POST)
-            .uri(uri)
-            .header(hyper::header::CONTENT_TYPE, "application/json")
-            .body(hyper::Body::from(ping.to_string()));
-
-        let request = match request {
-            Ok(request) => request,
-            Err(err) => {
-                return Box::new(future::err(Error::from(err)));
-            }
-        };
-
-        // TODO(indutny): timeout
-        let f = self
-            .client
-            .request(request)
-            .from_err::<Error>()
-            .and_then(|response| {
-                let is_success = if response.status().is_success() {
-                    future::ok(())
-                } else {
-                    future::err(Error::PingFailed)
-                };
-                is_success.and_then(|_| response.into_body().concat2().from_err())
-            })
-            .and_then(|chunk| serde_json::from_slice::<common::Ping>(&chunk).map_err(Error::from))
-            .and_then(|ping| future::ok(Some(ping)))
-            .from_err::<Error>();
-
-        Box::new(f)
     }
 
     fn on_ping(&mut self, sender: &str, peers: &[String]) {

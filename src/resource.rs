@@ -1,5 +1,4 @@
 extern crate futures;
-extern crate hyper;
 extern crate siphasher;
 
 use std::cmp::Ordering;
@@ -7,9 +6,9 @@ use std::hash::{Hash, Hasher};
 
 use futures::future;
 use futures::prelude::*;
-use hyper::{client, Body, Client, Method, Request, Response};
 use siphasher::sip::SipHasher;
 
+use crate::client::Client;
 use crate::data::Data;
 use crate::error::Error;
 use crate::message::response;
@@ -74,70 +73,17 @@ impl Resource {
         self.local
     }
 
-    pub fn fetch(
-        &self,
-        client: &Client<client::HttpConnector>,
-        sender: &str,
-        uri: &str,
-    ) -> FutureFetch {
+    pub fn fetch(&self, client: &Client, uri: &str) -> FutureFetch {
         if self.local {
             return Box::new(future::err(Error::NotFound));
         }
 
-        let uri = format!("{}/{}", self.peer_uri, uri);
-
-        trace!("fetch remote container: {} uri: {}", self.container, uri);
-        let request = Request::builder()
-            .method(Method::GET)
-            .uri(uri)
-            .header(hyper::header::HOST, self.container.to_string())
-            .header("x-naught-sender", sender.to_string())
-            .header("x-naught-redirect", "false")
-            .body(Body::empty());
-
-        let request = match request {
-            Ok(request) => request,
-            Err(err) => {
-                return Box::new(future::err(Error::from(err)));
-            }
-        };
-
-        let sender = self.peer_uri.clone();
-
-        // TODO(indutny): timeout
-        Box::new(
-            client
-                .request(request)
-                .from_err::<Error>()
-                .and_then(|response| {
-                    if response.status().is_success() {
-                        Ok(response)
-                    } else {
-                        Err(Error::NotFound)
-                    }
-                })
-                .map(move |response| {
-                    let (parts, body) = response.into_parts();
-
-                    let mime = parts
-                        .headers
-                        .get(hyper::header::CONTENT_TYPE)
-                        .map(|val| val.to_str().unwrap_or("unknown"))
-                        .unwrap_or("unknown")
-                        .to_string();
-                    response::Fetch {
-                        peer: sender,
-                        mime,
-                        body,
-                    }
-                }),
-        )
+        client.fetch(&self.peer_uri, &self.container, uri)
     }
 
     pub fn store(
         &self,
-        client: &Client<client::HttpConnector>,
-        sender: &str,
+        client: &Client,
         data: &Data,
     ) -> Box<Future<Item = (), Error = Error> + Send> {
         if self.local {
@@ -145,69 +91,6 @@ impl Resource {
             return Box::new(future::ok(()));
         }
 
-        let uri = self.store_uri.clone();
-
-        trace!("store remote resource: {}", uri);
-
-        let peek = Request::builder()
-            .method(Method::HEAD)
-            .uri(uri.clone())
-            .header("x-naught-sender", sender.to_string())
-            .header("x-naught-redirect", "false")
-            .body(Body::empty());
-
-        let store = Request::builder()
-            .method(Method::PUT)
-            .uri(uri)
-            .header("x-naught-sender", sender.to_string())
-            .header("x-naught-redirect", "false")
-            .body(Body::from(Vec::from(data)));
-
-        let peek = match peek {
-            Ok(peek) => peek,
-            Err(err) => {
-                return Box::new(future::err(Error::from(err)));
-            }
-        };
-
-        let store = match store {
-            Ok(store) => store,
-            Err(err) => {
-                return Box::new(future::err(Error::from(err)));
-            }
-        };
-
-        let peek = client
-            .request(peek)
-            .from_err::<Error>()
-            .and_then(|response| {
-                if response.status().is_success() {
-                    Ok(())
-                } else {
-                    Err(Error::NotFound)
-                }
-            });
-
-        // TODO(indutny): excessive cloning?
-        let debug_uri = self.store_uri.to_string();
-
-        let on_store_response = move |response: Response<Body>| {
-            if response.status().is_success() {
-                Ok(())
-            } else {
-                Err(Error::StoreFailed(debug_uri))
-            }
-        };
-
-        let store = client
-            .request(store)
-            .from_err::<Error>()
-            .and_then(on_store_response);
-
-        let peek_or_store = peek.or_else(move |_| store);
-
-        // TODO(indutny): timeout
-        // TODO(indutny): retry?
-        Box::new(peek_or_store)
+        client.store(&self.peer_uri, &self.container, data)
     }
 }

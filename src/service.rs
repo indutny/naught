@@ -101,6 +101,13 @@ impl hyper::service::Service for RPCService {
             .unwrap_or("true");
         let redirect: bool = redirect.parse().unwrap_or(true);
 
+        let container = parts
+            .headers
+            .get(hyper::header::HOST)
+            .map(|val| val.to_str().unwrap_or("unknown"))
+            .unwrap_or("unknown");
+        let container = container.split('.').next().unwrap_or("unknown");
+
         // TODO(indutny): authorization
         let resource: Box<Future<Item = Resource, Error = Error> + Send> =
             match (parts.method, parts.uri.path()) {
@@ -130,43 +137,28 @@ impl hyper::service::Service for RPCService {
                             }),
                     )
                 }
-                (Method::HEAD, resource) => Box::new(
-                    future::result(
-                        self.node
-                            .lock()
-                            .expect("lock to acquire")
-                            .peek(&resource[1..]),
-                    )
-                    .and_then(|res| RPCService::stringify_value(&res))
-                    .map(|body| Resource {
-                        status: StatusCode::OK,
-                        mime: None,
-                        sender: None,
-                        body,
-                    }),
+                (Method::GET, resource) => Box::new(
+                    self.node
+                        .lock()
+                        .expect("lock to acquire")
+                        .fetch(&container, &resource[1..], redirect)
+                        .map(|response| Resource {
+                            status: StatusCode::OK,
+                            mime: Some(response.mime),
+                            sender: Some(response.peer),
+                            body: response.body,
+                        }),
                 ),
-                (Method::GET, resource) => {
-                    let container = parts
-                        .headers
-                        .get(hyper::header::HOST)
-                        .map(|val| val.to_str().unwrap_or("unknown"))
-                        .unwrap_or("unknown");
-
-                    let container = container.split('.').next().unwrap_or("unknown");
-
-                    Box::new(
-                        self.node
-                            .lock()
-                            .expect("lock to acquire")
-                            .fetch(&container, &resource[1..], redirect)
-                            .map(|response| Resource {
-                                status: StatusCode::OK,
-                                mime: Some(response.mime),
-                                sender: Some(response.peer),
-                                body: response.body,
-                            }),
-                    )
-                }
+                (Method::HEAD, "/") => Box::new(
+                    future::result(self.node.lock().expect("lock to acquire").peek(&container))
+                        .and_then(|res| RPCService::stringify_value(&res))
+                        .map(|body| Resource {
+                            status: StatusCode::OK,
+                            mime: None,
+                            sender: None,
+                            body,
+                        }),
+                ),
                 (Method::PUT, "/_container") => {
                     let node = self.node.clone();
                     let container_secret = self.config.container_secret.clone();

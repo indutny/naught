@@ -5,6 +5,7 @@ pub mod config;
 pub mod node;
 pub mod server;
 
+mod client;
 mod data;
 mod error;
 mod message;
