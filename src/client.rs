@@ -1,11 +1,13 @@
 extern crate futures;
 extern crate hyper;
+extern crate hyper_tls;
 extern crate serde_json;
 
 use futures::future;
 use futures::prelude::*;
 use hyper::client::HttpConnector;
 use hyper::{header, Body, Client as HTTPClient, Method, Request, Response};
+use hyper_tls::HttpsConnector;
 
 use crate::config::Config;
 use crate::data::Data;
@@ -16,16 +18,22 @@ type FuturePing = Box<Future<Item = Option<common::Ping>, Error = Error> + Send>
 type FutureFetch = Box<Future<Item = response::Fetch, Error = Error> + Send>;
 type FutureEmpty = Box<Future<Item = (), Error = Error> + Send>;
 
+const CONNECTOR_THREADS: usize = 4;
+
 pub struct Client {
-    client: HTTPClient<HttpConnector>,
+    client: HTTPClient<HttpsConnector<HttpConnector>>,
     sender: String,
     auth: String,
 }
 
 impl Client {
     pub fn new(config: &Config, sender: &str) -> Self {
+        let connector = HttpsConnector::new(CONNECTOR_THREADS).expect("Connector to instantiate");
+
+        let client = HTTPClient::builder().build::<_, Body>(connector);
+
         Client {
-            client: HTTPClient::new(),
+            client,
             sender: sender.to_string(),
             auth: config.get_auth(),
         }
