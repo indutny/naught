@@ -13,7 +13,7 @@ use hmac::{Hmac, Mac};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 use crate::config::Config;
 use crate::error::Error;
@@ -24,17 +24,28 @@ type HmacSha256 = Hmac<Sha256>;
 
 const CONTAINER_ALPHABET: &[char] = &[
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i',
-    'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '-',
+    'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
 ];
 
 pub struct RPCService {
     config: Config,
     node: Arc<Mutex<Node>>,
+    auth_hash: Vec<u8>,
 }
 
 impl RPCService {
     pub fn new(config: Config, node: Arc<Mutex<Node>>) -> RPCService {
-        RPCService { config, node }
+        trace!("auth header: {}", config.get_auth());
+
+        let mut hasher = Sha256::new();
+        hasher.input(config.get_auth().as_bytes());
+        let auth_hash = hasher.result().to_vec();
+
+        RPCService {
+            config,
+            node,
+            auth_hash,
+        }
     }
 
     fn fetch_json<T: DeserializeOwned>(body: Body) -> impl Future<Item = T, Error = Error> {
@@ -74,6 +85,37 @@ impl RPCService {
         }
         Ok(result)
     }
+
+    fn check_auth(&self, parts: &hyper::http::request::Parts) -> bool {
+        match parts.method {
+            Method::GET | Method::HEAD => {
+                return true;
+            }
+            _ => {}
+        };
+
+        let header = parts
+            .headers
+            .get(hyper::header::AUTHORIZATION)
+            .map(|val| val.to_str().unwrap_or(""))
+            .unwrap_or("");
+
+        // No auth - no check
+        if header.is_empty() {
+            return false;
+        }
+
+        let mut hasher = Sha256::new();
+        hasher.input(header.as_bytes());
+        let result = hasher.result();
+
+        for (a, b) in result.into_iter().zip(self.auth_hash.iter()) {
+            if a != *b {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 struct Resource {
@@ -108,7 +150,8 @@ impl hyper::service::Service for RPCService {
             .unwrap_or("unknown");
         let container = container.split('.').next().unwrap_or("unknown");
 
-        // TODO(indutny): authorization
+        let is_authorized = self.check_auth(&parts);
+
         let resource: Box<Future<Item = Resource, Error = Error> + Send> =
             match (parts.method, parts.uri.path()) {
                 (Method::GET, "/_info") => Box::new(
@@ -122,20 +165,24 @@ impl hyper::service::Service for RPCService {
                         }),
                 ),
                 (Method::POST, "/_ping") => {
-                    let node = self.node.clone();
-                    Box::new(
-                        RPCService::fetch_json(body)
-                            .and_then(move |ping| {
-                                node.lock().expect("lock to acquire").recv_ping(&ping)
-                            })
-                            .and_then(|res| RPCService::stringify_value(&res))
-                            .map(|body| Resource {
-                                status: StatusCode::OK,
-                                mime: None,
-                                sender: None,
-                                body,
-                            }),
-                    )
+                    if is_authorized {
+                        let node = self.node.clone();
+                        Box::new(
+                            RPCService::fetch_json(body)
+                                .and_then(move |ping| {
+                                    node.lock().expect("lock to acquire").recv_ping(&ping)
+                                })
+                                .and_then(|res| RPCService::stringify_value(&res))
+                                .map(|body| Resource {
+                                    status: StatusCode::OK,
+                                    mime: None,
+                                    sender: None,
+                                    body,
+                                }),
+                        )
+                    } else {
+                        Box::new(future::err(Error::NotAuthorized))
+                    }
                 }
                 (Method::GET, resource) => Box::new(
                     self.node
@@ -160,28 +207,32 @@ impl hyper::service::Service for RPCService {
                         }),
                 ),
                 (Method::PUT, "/_container") => {
-                    let node = self.node.clone();
-                    let container_secret = self.config.container_secret.clone();
+                    if is_authorized {
+                        let node = self.node.clone();
+                        let container_secret = self.config.container_secret.clone();
 
-                    Box::new(
-                        RPCService::fetch_raw(body)
-                            .and_then(move |value| {
-                                RPCService::compute_container(&container_secret, &value)
-                                    .map(|container| (container, value))
-                            })
-                            .and_then(move |(container, value)| {
-                                node.lock()
-                                    .expect("lock to acquire")
-                                    .store(&container, value, redirect)
-                            })
-                            .and_then(|res| RPCService::stringify_value(&res))
-                            .map(|body| Resource {
-                                status: StatusCode::CREATED,
-                                mime: None,
-                                sender: None,
-                                body,
-                            }),
-                    )
+                        Box::new(
+                            RPCService::fetch_raw(body)
+                                .and_then(move |value| {
+                                    RPCService::compute_container(&container_secret, &value)
+                                        .map(|container| (container, value))
+                                })
+                                .and_then(move |(container, value)| {
+                                    node.lock()
+                                        .expect("lock to acquire")
+                                        .store(&container, value, redirect)
+                                })
+                                .and_then(|res| RPCService::stringify_value(&res))
+                                .map(|body| Resource {
+                                    status: StatusCode::CREATED,
+                                    mime: None,
+                                    sender: None,
+                                    body,
+                                }),
+                        )
+                    } else {
+                        Box::new(future::err(Error::NotAuthorized))
+                    }
                 }
                 _ => Box::new(future::err(Error::BadRequest)),
             };
@@ -193,6 +244,7 @@ impl hyper::service::Service for RPCService {
                         Error::NotFound => StatusCode::NOT_FOUND,
                         Error::BadRequest => StatusCode::BAD_REQUEST,
                         Error::NonLocalStore(_) => StatusCode::GONE,
+                        Error::NotAuthorized => StatusCode::UNAUTHORIZED,
                         _ => StatusCode::INTERNAL_SERVER_ERROR,
                     };
                     let json = serde_json::to_string(&response::Error { error: err })

@@ -21,6 +21,7 @@ pub enum Error {
     NonLocalStore(String),
     IO(String),
     Hmac,
+    NotAuthorized,
     Unreachable,
     JSON(String),
 }
@@ -47,6 +48,7 @@ impl fmt::Display for Error {
             Error::IO(s) => write!(f, "IO Error: {}", s),
             Error::Hmac => write!(f, "Hmac error"),
             Error::JSON(s) => write!(f, "JSON Error: {}", s),
+            Error::NotAuthorized => write!(f, "Request not authorized"),
         }
     }
 }

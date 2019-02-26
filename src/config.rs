@@ -58,4 +58,8 @@ impl Config {
             rebalance_every: Duration::from_secs(12),
         }
     }
+
+    pub fn get_auth(&self) -> String {
+        format!("Bearer {:016x}-{:016x}", self.hash_seed.0, self.hash_seed.1)
+    }
 }
