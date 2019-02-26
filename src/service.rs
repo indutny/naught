@@ -35,8 +35,6 @@ pub struct RPCService {
 
 impl RPCService {
     pub fn new(config: Config, node: Arc<Mutex<Node>>) -> RPCService {
-        trace!("auth header: {}", config.get_auth());
-
         let mut hasher = Sha256::new();
         hasher.input(config.get_auth().as_bytes());
         let auth_hash = hasher.result().to_vec();

@@ -23,6 +23,8 @@ pub struct Server {
 
 impl Server {
     pub fn new(config: Config) -> Server {
+        trace!("auth header: {}", config.get_auth());
+
         Server { config }
     }
 
