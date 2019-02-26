@@ -24,7 +24,7 @@ pub struct Client {
 
 impl Client {
     pub fn new(config: &Config, sender: &str) -> Self {
-        let auth = format!("Bearer {:x}{:x}", config.hash_seed.0, config.hash_seed.1);
+        let auth = format!("Bearer {:x}-{:x}", config.hash_seed.0, config.hash_seed.1);
         Client {
             client: HTTPClient::new(),
             sender: sender.to_string(),
