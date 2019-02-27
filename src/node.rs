@@ -488,6 +488,7 @@ mod tests {
     fn it_should_find_rebalance_resources() {
         let mut config = Config::new(vec![0], (0, 0));
         config.stable_delay = Duration::from_secs(0);
+        config.replicate = 1;
         let node = Node::new(SocketAddr::from(([157, 230, 95, 152], 8007)), config);
 
         let peers: Vec<String> = [
