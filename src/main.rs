@@ -18,7 +18,7 @@ use std::io::prelude::*;
 fn main() {
     env_logger::init();
 
-    let matches = App::with_defaults("naught")
+    let matches = App::new("naught")
         .version(clap::crate_version!())
         .author(clap::crate_authors!("\n"))
         .about("Naught server")
