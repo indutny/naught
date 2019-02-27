@@ -9,7 +9,7 @@ extern crate tokio;
 use clap::{App, Arg};
 use futures::prelude::*;
 
-use naught::config::Config;
+use naught::config::{Config, UserConfig};
 use naught::server::Server;
 
 use std::fs::File;
@@ -52,7 +52,7 @@ fn main() {
         file.read_to_string(&mut s)
             .expect("config file to be readable");
 
-        serde_json::from_str::<Config>(&s).expect("config to be valid JSON")
+        serde_json::from_str::<UserConfig>(&s).expect("config to be valid JSON")
     } else {
         panic!("config file not present");
     };
@@ -64,7 +64,7 @@ fn main() {
         .expect("Invalid port value");
     let host = matches.value_of("host").unwrap();
 
-    let server = Server::new(config);
+    let server = Server::new(Config::from(config));
     let listen = server.listen(port, host);
 
     tokio::run(listen.map_err(|err| {
