@@ -317,7 +317,7 @@ impl Node {
                 let resources =
                     self.find_rebalance_resources(container, &union, &added_peers, &removed_peers);
 
-                let keep_local = resources.iter().any(|resource| resource.is_local());
+                let keep_local = resources.iter().any(Resource::is_local);
 
                 let successes: Vec<FutureBool> = resources
                     .into_iter()
