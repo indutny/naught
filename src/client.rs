@@ -45,9 +45,9 @@ impl Client {
         let request = Request::builder()
             .method(Method::POST)
             .uri(uri)
-            .header("authorization", self.auth.clone())
-            .header("x-naught-sender", self.sender.clone())
+            .header(header::AUTHORIZATION, self.auth.clone())
             .header(header::CONTENT_TYPE, "application/json")
+            .header("x-naught-sender", self.sender.clone())
             .body(Body::from(json_ping.to_string()));
 
         let request = match request {
@@ -148,7 +148,7 @@ impl Client {
         let store = Request::builder()
             .method(Method::PUT)
             .uri(format!("{}/_container", peer_uri))
-            .header("authorization", self.auth.clone())
+            .header(header::AUTHORIZATION, self.auth.clone())
             .header("x-naught-sender", self.sender.to_string())
             .header("x-naught-redirect", "false")
             .body(Body::from(Vec::from(data)));
