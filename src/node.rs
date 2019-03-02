@@ -373,6 +373,7 @@ impl Node {
 
     fn construct_ping(&self) -> common::Ping {
         common::Ping {
+            cluster: self.config.cluster,
             sender: self.uri.clone(),
             peers: self.get_peer_uris(),
         }
