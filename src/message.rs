@@ -7,7 +7,6 @@ pub mod common {
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct Ping {
-        pub cluster: usize,
         pub sender: String,
         pub peers: Vec<String>,
     }
