@@ -47,6 +47,7 @@ impl Client {
             .uri(uri)
             .header(header::AUTHORIZATION, self.auth.clone())
             .header(header::CONTENT_TYPE, "application/json")
+            .header(header::ACCEPT, "application/json")
             .header("x-naught-sender", self.sender.clone())
             .body(Body::from(json_ping.to_string()));
 
@@ -149,6 +150,7 @@ impl Client {
             .method(Method::PUT)
             .uri(format!("{}/_container", peer_uri))
             .header(header::AUTHORIZATION, self.auth.clone())
+            .header(header::ACCEPT, "application/json")
             .header("x-naught-sender", self.sender.to_string())
             .header("x-naught-redirect", "false")
             .body(Body::from(Vec::from(data)));
