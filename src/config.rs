@@ -12,23 +12,41 @@ pub struct PingEvery {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Config {
-    pub cluster: usize,
+    // Optional https_port to advertise to other peers
     pub https_port: Option<u16>,
+
+    // Container secret for hmac
     pub container_secret: Vec<u8>,
+
+    // Hash seed and auth key
     pub hash_seed: (u64, u64),
+
+    // Number of copies of each value
     pub replicate: u32,
+
+    // Initial peer uris
     pub initial_peers: Vec<String>,
+
+    // How often to ping other nodes
     pub ping_every: PingEvery,
+
+    // At least one ping should arrive during this time for requests to
+    // be forwarded to this remote node
     pub alive_timeout: Duration,
+
+    // Remote node would be forgotten after this timeout
     pub remove_timeout: Duration,
+
+    // How many second to wait before considering node stable
     pub stable_delay: Duration,
+
+    // How often to rebalance keys between servers
     pub rebalance_every: Duration,
 }
 
 impl Config {
     pub fn new(container_secret: Vec<u8>, hash_seed: (u64, u64)) -> Self {
         Config::from(UserConfig {
-            cluster: None,
             https_port: None,
             container_secret,
             hash_seed,
@@ -50,7 +68,6 @@ impl Config {
 impl From<UserConfig> for Config {
     fn from(config: UserConfig) -> Self {
         Self {
-            cluster: config.cluster.unwrap_or(0),
             https_port: config.https_port,
             container_secret: config.container_secret,
             hash_seed: config.hash_seed,
@@ -78,9 +95,6 @@ impl From<UserConfig> for Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserConfig {
-    // Optional cluster id
-    pub cluster: Option<usize>,
-
     // Optional https_port to advertise to other peers
     pub https_port: Option<u16>,
 
