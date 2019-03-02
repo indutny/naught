@@ -143,11 +143,7 @@ impl Node {
 
         // No resources to redirect to
         if resources.is_empty() {
-            trace!(
-                "fetch missing container: {} redirect: {}",
-                container,
-                redirect
-            );
+            trace!("missing container: {} redirect: {}", container, redirect);
             return Box::new(future::err(Error::NotFound));
         }
 
